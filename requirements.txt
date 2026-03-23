@@ -1,0 +1,45 @@
+# Yukta Agent System Requirements
+# Python 3.8+
+
+# Core dependencies
+# Required for LLM client HTTP requests
+requests>=2.31.0
+
+# Required for Remote MCP Tools async HTTP execution
+httpx>=0.24.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Optional dependencies for extended features:
+# - If using with LLM APIs:
+#   openai>=1.0.0
+#   anthropic>=0.8.0
+
+# - If using Remote MCP (Model Context Protocol) servers:
+#   mcp>=0.1.0
+#   mcp[sse]>=0.1.0
+
+# - If using advanced data processing:
+#   pandas>=2.0.0
+#   numpy>=1.24.0
+
+# - If using database connections:
+#   sqlalchemy>=2.0.0
+
+# - If using async operations:
+#   asyncio>=3.4.3
+#   aiohttp>=3.9.0
+
+# Development dependencies:
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.5.0
+
+#dependency for tracing
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+openinference-semantic-conventions>=0.1.7
+arize-phoenix>=4.0.0
