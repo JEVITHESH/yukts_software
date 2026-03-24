@@ -1,10 +1,25 @@
 """
 System Prompt Module
 Provides a structured way to define and manage system prompts for agents.
+Handles JSON and other content with literal braces transparently.
+
+Key Feature: Only valid Python identifiers in braces are treated as variables.
+This means JSON like {"name": "value"} works naturally without any escaping.
+
+Example:
+    prompt = SystemPrompt(
+        "MyAgent",
+        '''Generate JSON matching this schema:
+        {"name": string, "age": number}
+        
+        Use this context: {user_context}'''
+    )
+    prompt.get_prompt(user_context="example")  # JSON stays intact, variable is replaced
 """
 
 from typing import Optional, Dict, Any
 from datetime import datetime
+import re
 
 
 class SystemPrompt:
@@ -44,20 +59,35 @@ class SystemPrompt:
     def get_prompt(self, **kwargs) -> str:
         """
         Get the formatted system prompt with variables substituted.
+        Only valid Python identifiers in braces are treated as variables.
+        All other braces (like in JSON) are left unchanged.
         
         Args:
             **kwargs: Additional variables to override or extend instance variables
             
         Returns:
-            Formatted prompt string
+            Formatted prompt string with variables substituted
+            
+        Example:
+            prompt = SystemPrompt("Agent", 'Schema: {"name": string}, use {variable}')
+            result = prompt.get_prompt(variable="value")
+            # Output: 'Schema: {"name": string}, use value'
         """
         # Merge instance variables with kwargs
         all_variables = {**self.variables, **kwargs}
         
-        try:
-            return self.prompt_text.format(**all_variables)
-        except KeyError as e:
-            raise ValueError(f"Missing required variable in prompt: {e}")
+        # Replace only valid Python identifiers in braces
+        # Pattern matches {identifier} where identifier is a valid Python name
+        # This leaves {"name": "value"} intact while replacing {variable}
+        def replace_var(match):
+            key = match.group(1)
+            if key not in all_variables:
+                # Return the original text if variable not found
+                return match.group(0)
+            return str(all_variables[key])
+        
+        # Pattern: { followed by valid identifier (letter/underscore + alphanumeric/underscore) followed by }
+        return re.sub(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}', replace_var, self.prompt_text)
     
     def update_prompt(self, new_prompt_text: str) -> None:
         """
@@ -74,6 +104,9 @@ class SystemPrompt:
         
         Args:
             **kwargs: Key-value pairs to add/update in variables
+            
+        Example:
+            prompt.add_variables(user_name="Alice", context="example")
         """
         self.variables.update(kwargs)
     

@@ -7,6 +7,76 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from enum import Enum
 import json
+import logging
+
+# Import token analyzer for accurate token counting
+try:
+    from ..token_analyzer import TokenAnalyzer, get_token_analyzer
+    HAS_TIKTOKEN = True
+except ImportError:
+    HAS_TIKTOKEN = False
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+def _make_json_serializable(obj: Any) -> Any:
+    """
+    Recursively convert objects to JSON-serializable format.
+    Handles protobuf objects, enums, repeated fields, and other non-serializable types.
+    
+    Args:
+        obj: Object to convert
+        
+    Returns:
+        JSON-serializable version of the object
+    """
+    # Handle None
+    if obj is None:
+        return None
+    
+    # Handle basic JSON-serializable types
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    
+    # Handle lists
+    if isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    
+    # Handle dictionaries
+    if isinstance(obj, dict):
+        return {
+            _make_json_serializable(k): _make_json_serializable(v)
+            for k, v in obj.items()
+        }
+    
+    # Handle protobuf objects
+    if hasattr(obj, 'DESCRIPTOR'):
+        return _make_json_serializable(obj.__dict__)
+    
+    # Handle protobuf repeated fields (RepeatedScalarContainer, RepeatedCompositeContainer)
+    if type(obj).__name__ in ('RepeatedScalarContainer', 'RepeatedCompositeContainer'):
+        return [_make_json_serializable(item) for item in obj]
+    
+    # Handle enums
+    if hasattr(obj, 'value'):
+        try:
+            return str(obj.value)
+        except:
+            pass
+    
+    # Handle objects with __dict__
+    if hasattr(obj, '__dict__'):
+        try:
+            return _make_json_serializable(obj.__dict__)
+        except:
+            pass
+    
+    # Fallback: convert to string
+    try:
+        return str(obj)
+    except:
+        return None
 
 
 class Role(Enum):
@@ -49,7 +119,7 @@ class Message:
         
         Args:
             role: Message role (system, user, agent, tool)
-            content: Message content
+            content: Message content (will be converted to string if not already)
             tool_calls: Tool calls if agent is requesting tool use
             tool_call_id: ID of tool call this message responds to
             metadata: Additional metadata
@@ -60,7 +130,17 @@ class Message:
             raise ValueError(f"Invalid role: {role}. Must be one of {[r.value for r in Role]}")
         
         self.role = role
-        self.content = content
+        # Ensure content is always a string
+        if not isinstance(content, str):
+            # Clean protobuf objects and other non-serializable types first
+            try:
+                cleaned_content = _make_json_serializable(content)
+                self.content = json.dumps(cleaned_content) if isinstance(cleaned_content, (dict, list)) else str(cleaned_content)
+            except Exception as e:
+                # Fallback: just convert to string
+                self.content = str(content)
+        else:
+            self.content = content
         self.tool_calls = tool_calls or []
         self.tool_call_id = tool_call_id
         self.metadata = metadata or {}
@@ -74,19 +154,49 @@ class Message:
     
     def _estimate_tokens(self) -> int:
         """
-        Estimate token count for the message.
-        Uses simple heuristic: ~4 characters per token on average.
+        Estimate token count for the message using tiktoken if available.
+        Falls back to character-based estimation if tiktoken is not available.
         
         Returns:
             Estimated token count
         """
-        char_count = len(self.content)
-        token_count = char_count // 4
+        # Ensure content is a string (should always be, but be safe)
+        content_str = self.content if isinstance(self.content, str) else str(self.content)
+        
+        # Try to use tiktoken for accurate counting
+        if HAS_TIKTOKEN:
+            try:
+                analyzer = get_token_analyzer()
+                token_count = analyzer.count_tokens(content_str)
+                
+                # Add tokens for tool calls
+                if self.tool_calls:
+                    try:
+                        tool_calls_str = json.dumps(self.tool_calls)
+                        token_count += analyzer.count_tokens(tool_calls_str)
+                    except:
+                        pass
+                
+                # Add 4 tokens for message overhead
+                token_count += 4
+                return max(1, token_count)
+            except Exception as e:
+                logger.debug(f"Tiktoken counting failed: {e}. Using fallback.")
+        
+        # Fallback: simple heuristic (~4 characters per token)
+        char_count = len(content_str)
+        token_count = max(1, char_count // 4)
         
         # Add tokens for tool calls
         if self.tool_calls:
-            tool_calls_str = json.dumps(self.tool_calls)
-            token_count += len(tool_calls_str) // 4
+            try:
+                tool_calls_str = json.dumps(self.tool_calls)
+                token_count += max(1, len(tool_calls_str) // 4)
+            except:
+                pass
+        
+        # Add message overhead
+        token_count += 4
         
         # Minimum 1 token
         return max(1, token_count)
@@ -192,6 +302,35 @@ class Message:
     def has_tool_calls(self) -> bool:
         """Check if message contains tool calls."""
         return len(self.tool_calls) > 0
+    
+    def analyze_tokens(self) -> Dict[str, Any]:
+        """
+        Analyze token usage for this message using TokenAnalyzer.
+        
+        Returns:
+            Dictionary with detailed token analysis
+        """
+        if not HAS_TIKTOKEN:
+            return {
+                'role': self.role,
+                'total_tokens': self.token_count,
+                'breakdown': 'Tiktoken not available - using fallback estimation',
+            }
+        
+        try:
+            analyzer = get_token_analyzer()
+            return analyzer.analyze_message(
+                role=self.role,
+                content=self.content,
+                tool_calls=self.tool_calls if self.tool_calls else None
+            )
+        except Exception as e:
+            logger.warning(f"Token analysis failed: {e}")
+            return {
+                'role': self.role,
+                'total_tokens': self.token_count,
+                'error': str(e),
+            }
     
     def add_metadata(self, key: str, value: Any) -> None:
         """

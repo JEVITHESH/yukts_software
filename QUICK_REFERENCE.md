@@ -61,6 +61,35 @@ from yukta.config import SystemPrompt
 prompt = SystemPrompt("agent_name", "Custom instructions here")
 ```
 
+### Working with JSON in Prompts
+The formatter intelligently handles JSON and other content with braces. Only valid Python identifiers in braces are treated as variables - everything else (including JSON) is left unchanged.
+
+```python
+from yukta.config import SystemPrompt
+
+# ✅ JSON works naturally without any escaping!
+prompt = SystemPrompt(
+    "DataAgent",
+    """Return JSON with this structure:
+    {
+      "status": "success",
+      "data": {output_data},
+      "count": 0
+    }
+    
+    Input: {user_input}"""
+)
+
+# Only {output_data} and {user_input} are replaced
+result = prompt.get_prompt(
+    output_data='[1, 2, 3]',
+    user_input='find all items'
+)
+# Output JSON stays intact, variables are replaced
+```
+
+**Key Rule:** Only `{valid_python_identifier}` is replaced. Everything else (like `{"key": "value"}`) is untouched.
+
 ## Installation
 
 ### Development Mode
@@ -99,6 +128,60 @@ pip install -e ".[dev,llm,data]"
 | config.py | root | yukta/config/ |
 | system_prompt.py | root | yukta/config/ |
 | chat.py | root | yukta/cli/ |
+
+## Context Window Management
+
+### Automatic Context Trimming
+The framework automatically manages token limits using a **sliding window** mechanism when conversation history exceeds the model's context window.
+
+```python
+# NO CONFIGURATION NEEDED!
+# Agent automatically:
+# 1. Fetches model context size from vLLM
+# 2. Tracks cumulative tokens
+# 3. Removes old messages when approaching limit
+# 4. Preserves system prompt and recent context
+
+agent = create_agent("MyAgent", "MyRole")
+# Chat will automatically trim old messages if needed!
+```
+
+### How It Works
+- **Default**: 8192 token context, 512 token output buffer
+- **Trimming**: Removes oldest messages first (keeps system prompt)
+- **Logging**: Shows what was trimmed and final token count
+- **Automatic**: Triggered in `get_messages()` before sending to LLM
+
+### Example: Custom Configuration
+```python
+from yukta import Chat
+
+# If you're creating Chat manually
+chat = Chat(
+    system_prompt="You are a helpful assistant",
+    context_window=8192,     # Model's max context
+    context_buffer=512       # Space reserved for output
+)
+# Available for input: 7680 tokens (8192 - 512)
+```
+
+### Monitoring Token Usage
+```python
+# After agent runs, check statistics
+print(f"Total tokens used: {agent.chat.stats['total_tokens']}")
+print(f"Messages trimmed: {agent.chat.stats['messages_trimmed']}")
+print(f"Max input allowed: {agent.chat.max_input_tokens}")
+```
+
+### Why This Matters
+✅ No more "context exceeded" errors  
+✅ Long conversations work automatically  
+✅ System prompt always preserved  
+✅ Recent messages kept for coherence  
+✅ Full visibility in logs  
+
+See `CONTEXT_WINDOW_MANAGEMENT.md` for detailed documentation.
+
 ## Key Benefits
 ✅ Professional package structure
 ✅ Clear module organization
@@ -106,8 +189,10 @@ pip install -e ".[dev,llm,data]"
 ✅ Better IDE support and autocomplete
 ✅ Scalable architecture
 ✅ Proper namespace management
+✅ **Automatic context window management** - never exceed token limits!
 
 ## Need Help?
 - See `PROJECT_STRUCTURE.md` for detailed documentation
 - See `README.md` for feature overview
+- See `CONTEXT_WINDOW_MANAGEMENT.md` for token limit handling
 - Check `examples/sample.py` for usage examples

@@ -19,6 +19,13 @@ from ..Chat.llm_response import LLMResponse
 from ..Clients.llmclientfactory import BaseLLMClient, format_tools_for_api, parse_tool_call_arguments
 from ..memory import Memory
 from ..Chat.chat import Chat, ChatManager
+
+# Import token analyzer
+try:
+    from ..token_analyzer import get_token_analyzer, TokenAnalyzer
+    HAS_TIKTOKEN = True
+except ImportError:
+    HAS_TIKTOKEN = False
 # Configure logging
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -120,10 +127,25 @@ class Agent:
         if self.config.auto_save_chat or self.config.auto_save_chat_history:
             # Initialize chat with system prompt
             system_prompt_text = self.system_prompt.get_prompt(agent_name=self.agent_name)
+            
+            # Get context window from LLM client if available
+            context_window = 8192  # Default
+            if hasattr(self.llm_client, 'get_context_window'):
+                try:
+                    context_window = self.llm_client.get_context_window()
+                    logger.info(f"[{self.agent_id[:8]}] Using LLM context window: {context_window} tokens")
+                except Exception as e:
+                    logger.warning(f"[{self.agent_id[:8]}] Failed to get LLM context window: {str(e)}")
+            else:
+                logger.debug(f"[{self.agent_id[:8]}] LLM client doesn't support get_context_window(), using default: {context_window}")
+            
+            # Create Chat with context window management
             self.chat = Chat(
                 system_prompt=system_prompt_text,
                 chat_id=self.agent_id,
-                metadata={"agent_name": self.agent_name}
+                metadata={"agent_name": self.agent_name},
+                context_window=context_window,
+                context_buffer=512  # Reserve 512 tokens for output
             )
             self.chat_manager = ChatManager(storage_backend=self.config.storage_backend)
             print(f'Chat save directory::::::::::::::::: {self.config.chat_save_dir}')
@@ -153,23 +175,38 @@ class Agent:
             "failed_tool_calls": 0,
             "llm_calls": 0,
             "total_tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "system_tokens": 0,
             "cache_hits": 0,
             "cache_misses": 0,
             "total_cached_tokens": 0,
-            "cache_cost_savings": 0.0
+            "cache_cost_savings": 0.0,
+            "token_cost_estimate": 0.0
         }
+        
+        # Token analyzer instance
+        self.token_analyzer: Optional[TokenAnalyzer] = None
+        if HAS_TIKTOKEN:
+            try:
+                model_name = self.llm_client.model_name if self.llm_client else 'gpt-4'
+                self.token_analyzer = TokenAnalyzer(model_name=model_name)
+            except Exception as e:
+                logger.warning(f"[{self.agent_id[:8]}] Failed to initialize TokenAnalyzer: {e}")
         
         if self.config.verbose:
             print(f"Agent '{self.agent_name}' initialized with ID: {self.agent_id}")
             print(f"Available tools: {self.tools_processor.list_tools()}")
             if self.llm_client:
                 print(f"LLM client configured: {self.llm_client.model_name}")
+                if self.token_analyzer:
+                    print(f"Token Analyzer enabled: {self.token_analyzer.encoding_name}")
             if self.chat is not None:
                 print(f"Chat enabled with ID: {self.chat.chat_id}")
             if self.use_memory_cache:
                 print(f"Memory cache enabled with session: {self.memory.session_id}")
         
-        logger.info(f"[{self.agent_id[:8]}] Agent initialized successfully: llm={self.llm_client is not None}, memory={self.use_memory_cache}, auto_save_chat={self.config.auto_save_chat}")
+        logger.info(f"[{self.agent_id[:8]}] Agent initialized successfully: llm={self.llm_client is not None}, memory={self.use_memory_cache}, auto_save_chat={self.config.auto_save_chat}, tokens={HAS_TIKTOKEN}")
     
     def get_system_prompt(self, **kwargs) -> str:
         """
@@ -433,11 +470,19 @@ class Agent:
             "failed_tool_calls": 0,
             "llm_calls": 0,
             "total_tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "system_tokens": 0,
             "cache_hits": 0,
             "cache_misses": 0,
             "total_cached_tokens": 0,
-            "cache_cost_savings": 0.0
+            "cache_cost_savings": 0.0,
+            "token_cost_estimate": 0.0
         }
+        
+        # Reset token analyzer stats
+        if self.token_analyzer:
+            self.token_analyzer.reset_stats()
         
         # Reset memory if using cache
         if self.use_memory_cache and self.memory:
@@ -502,6 +547,162 @@ class Agent:
                 "total_cached_tokens": self.stats["total_cached_tokens"],
                 "cache_cost_savings": self.stats["cache_cost_savings"]
             }
+    
+    # ========== Token Analysis Methods ==========
+    
+    def get_token_analysis(self) -> Dict[str, Any]:
+        """
+        Get detailed token analysis for the agent.
+        
+        Returns:
+            Dictionary with comprehensive token analysis
+        """
+        if not HAS_TIKTOKEN or not self.token_analyzer:
+            return {
+                'available': False,
+                'reason': 'Tiktoken not available',
+                'total_tokens': self.stats['total_tokens'],
+                'input_tokens': self.stats['input_tokens'],
+                'output_tokens': self.stats['output_tokens'],
+            }
+        
+        try:
+            chat_analysis = {}
+            if self.chat:
+                chat_analysis = self.chat.get_token_analysis()
+            
+            analysis = {
+                'available': True,
+                'agent_id': self.agent_id,
+                'agent_name': self.agent_name,
+                'model': self.token_analyzer.model_name,
+                'encoding': self.token_analyzer.encoding_name,
+                'total_tokens': self.stats['total_tokens'],
+                'input_tokens': self.stats['input_tokens'],
+                'output_tokens': self.stats['output_tokens'],
+                'system_tokens': self.stats['system_tokens'],
+                'llm_calls': self.stats['llm_calls'],
+                'token_cost_estimate': self.stats['token_cost_estimate'],
+                'chat_analysis': chat_analysis,
+                'token_distribution': {
+                    'input': round((self.stats['input_tokens'] / max(1, self.stats['total_tokens'])) * 100, 1),
+                    'output': round((self.stats['output_tokens'] / max(1, self.stats['total_tokens'])) * 100, 1),
+                    'system': round((self.stats['system_tokens'] / max(1, self.stats['total_tokens'])) * 100, 1),
+                }
+            }
+            return analysis
+        except Exception as e:
+            logger.warning(f"Token analysis failed: {e}")
+            return {
+                'available': False,
+                'error': str(e),
+                'total_tokens': self.stats['total_tokens'],
+            }
+    
+    def get_token_report(self) -> str:
+        """
+        Generate a human-readable token usage report for the agent.
+        
+        Returns:
+            Formatted report string
+        """
+        analysis = self.get_token_analysis()
+        
+        if not analysis.get('available'):
+            return f"Token analysis unavailable: {analysis.get('reason', analysis.get('error', 'Unknown'))}"
+        
+        dist = analysis.get('token_distribution', {})
+        
+        report = f"""
+========== AGENT TOKEN ANALYSIS REPORT ==========
+Agent: {analysis['agent_name']} ({analysis['agent_id'][:8]}...)
+Model: {analysis['model']} ({analysis['encoding']})
+
+Token Usage Summary:
+  Total Tokens: {analysis['total_tokens']:,}
+  Input Tokens: {analysis['input_tokens']:,} ({dist.get('input', 0)}%)
+  Output Tokens: {analysis['output_tokens']:,} ({dist.get('output', 0)}%)
+  System Tokens: {analysis['system_tokens']:,} ({dist.get('system', 0)}%)
+
+Execution Statistics:
+  LLM Calls: {analysis['llm_calls']}
+  Avg Tokens/Call: {round(analysis['total_tokens'] / max(1, analysis['llm_calls']), 1)}
+  Estimated Cost: ${analysis['token_cost_estimate']:.6f}
+
+Tool Execution:
+  Total Tool Calls: {self.stats['tool_calls']}
+  Successful: {self.stats['successful_tool_calls']}
+  Failed: {self.stats['failed_tool_calls']}
+================================================
+        """
+        
+        # Add chat analysis if available
+        if analysis.get('chat_analysis') and analysis['chat_analysis'].get('available'):
+            chat_info = analysis['chat_analysis']
+            report += f"""
+Chat Context:
+  Total Messages: {chat_info.get('message_count', 0)}
+  Context Window: {chat_info.get('context_window', 0):,} tokens
+  Usage: {chat_info.get('context_usage_percent', 0)}%
+  Available: {chat_info.get('available_tokens', 0):,} tokens
+        """
+        
+        return report
+    
+    def estimate_token_costs(self) -> Dict[str, Any]:
+        """
+        Estimate API costs based on token usage.
+        
+        Returns:
+            Dictionary with cost estimates
+        """
+        if not self.token_analyzer:
+            return {'error': 'Token analyzer not available'}
+        
+        model = self.llm_client.model_name if self.llm_client else 'gpt-4'
+        cost_estimate = self.token_analyzer.estimate_cost(
+            input_tokens=self.stats['input_tokens'],
+            output_tokens=self.stats['output_tokens'],
+            model=model
+        )
+        
+        # Update stats
+        self.stats['token_cost_estimate'] = cost_estimate['total_cost']
+        
+        return cost_estimate
+    
+    def update_token_stats(self, input_tokens: int, output_tokens: int, system_tokens: int = 0) -> None:
+        """
+        Update token statistics.
+        
+        Args:
+            input_tokens: Number of input tokens used
+            output_tokens: Number of output tokens generated
+            system_tokens: Number of system tokens (if any)
+        """
+        self.stats['input_tokens'] += input_tokens
+        self.stats['output_tokens'] += output_tokens
+        self.stats['system_tokens'] += system_tokens
+        self.stats['total_tokens'] += input_tokens + output_tokens + system_tokens
+        self.stats['llm_calls'] += 1
+        
+        logger.debug(f"[{self.agent_id[:8]}] Token stats updated: input={input_tokens}, output={output_tokens}")
+    
+    def get_token_summary(self) -> str:
+        """
+        Get a brief token usage summary.
+        
+        Returns:
+            String with token summary
+        """
+        return (
+            f"Agent '{self.agent_name}' - "
+            f"Total Tokens: {self.stats['total_tokens']:,} "
+            f"(Input: {self.stats['input_tokens']:,}, "
+            f"Output: {self.stats['output_tokens']:,}, "
+            f"System: {self.stats['system_tokens']:,}) - "
+            f"Cost: ${self.stats['token_cost_estimate']:.6f}"
+        )
     
     def _initialize_conversation(self) -> None:
         """Initialize conversation with system prompt."""
