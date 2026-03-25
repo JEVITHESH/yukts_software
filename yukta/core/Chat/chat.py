@@ -12,13 +12,6 @@ import logging
 from ..storage import BaseStorageBackend, JSONFileStorage
 from .message import Message, Role, system_message, user_message, agent_message, tool_message
 
-# Import token analyzer
-try:
-    from ..token_analyzer import get_token_analyzer, TokenAnalyzer
-    HAS_TIKTOKEN = True
-except ImportError:
-    HAS_TIKTOKEN = False
-
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -47,8 +40,7 @@ class Chat:
         chat_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         context_window: int = 8192,
-        context_buffer: int = 512,
-        model_name: str = 'gpt-4'
+        context_buffer: int = 512
     ):
         """
         Initialize a chat session.
@@ -59,13 +51,11 @@ class Chat:
             metadata: Additional metadata (tags, user_id, etc.)
             context_window: Model's context window size in tokens (default: 8192)
             context_buffer: Safety buffer to keep free (default: 512 for output tokens)
-            model_name: Model name for token counting (default: gpt-4)
         """
         self.chat_id = chat_id or self._generate_chat_id()
         self.created_at = datetime.now()
         self.updated_at = self.created_at
         self.metadata = metadata or {}
-        self.model_name = model_name
         
         # Context window management
         self.context_window = context_window
@@ -80,14 +70,6 @@ class Chat:
         # Message history (excludes system prompt)
         self.messages: List[Message] = []
         
-        # Token analyzer instance
-        self.token_analyzer: Optional[TokenAnalyzer] = None
-        if HAS_TIKTOKEN:
-            try:
-                self.token_analyzer = TokenAnalyzer(model_name=model_name)
-            except Exception as e:
-                logger.warning(f"Failed to initialize TokenAnalyzer: {e}")
-        
         # Statistics
         self.stats = {
             "total_messages": 0,
@@ -95,14 +77,10 @@ class Chat:
             "agent_messages": 0,
             "tool_calls": 0,
             "total_tokens": 0,
-            "system_tokens": 0,
-            "user_tokens": 0,
-            "agent_tokens": 0,
-            "tool_tokens": 0,
             "messages_trimmed": 0  # Track sliding window trims
         }
         
-        logger.debug(f"Chat initialized with context window: {self.context_window}, buffer: {self.context_buffer}, model: {model_name}")
+        logger.debug(f"Chat initialized with context window: {self.context_window}, buffer: {self.context_buffer}")
     
     def _generate_chat_id(self) -> str:
         """Generate a unique chat ID."""
@@ -118,15 +96,7 @@ class Chat:
         Args:
             prompt: System prompt text
         """
-        # If system prompt already exists, subtract its tokens from stats
-        if self._system_prompt:
-            self.stats["total_tokens"] -= self._system_prompt.token_count
-            self.stats["system_tokens"] -= self._system_prompt.token_count
-        
-        # Set the new system prompt
         self._system_prompt = system_message(prompt)
-        self.stats["total_tokens"] += self._system_prompt.token_count
-        self.stats["system_tokens"] += self._system_prompt.token_count
         self.updated_at = datetime.now()
     
     def get_system_prompt(self) -> Optional[str]:
@@ -156,17 +126,12 @@ class Chat:
         self.stats["total_messages"] += 1
         self.stats["total_tokens"] += message.token_count
         
-        # Update role-specific token counts
         if message.is_user():
             self.stats["user_messages"] += 1
-            self.stats["user_tokens"] += message.token_count
         elif message.is_agent():
             self.stats["agent_messages"] += 1
-            self.stats["agent_tokens"] += message.token_count
             if message.has_tool_calls():
                 self.stats["tool_calls"] += len(message.tool_calls)
-        elif message.is_tool():
-            self.stats["tool_tokens"] += message.token_count
     
     def add_user_message(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> Message:
         """
@@ -357,12 +322,7 @@ class Chat:
             "user_messages": 0,
             "agent_messages": 0,
             "tool_calls": 0,
-            "total_tokens": 0,
-            "system_tokens": self._system_prompt.token_count if self._system_prompt and keep_system else 0,
-            "user_tokens": 0,
-            "agent_tokens": 0,
-            "tool_tokens": 0,
-            "messages_trimmed": 0
+            "total_tokens": 0
         }
         
         self.updated_at = datetime.now()
@@ -380,88 +340,8 @@ class Chat:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "total_tokens": self.get_token_count(),
-            "has_system_prompt": self._system_prompt is not None,
-            "model": self.model_name,
-            "context_window": self.context_window,
-            "context_usage_percent": round((self.get_token_count() / self.context_window) * 100, 1) if self.context_window > 0 else 0,
+            "has_system_prompt": self._system_prompt is not None
         }
-    
-    def get_token_analysis(self) -> Dict[str, Any]:
-        """
-        Get detailed token analysis using TokenAnalyzer.
-        
-        Returns:
-            Dictionary with detailed token analysis
-        """
-        if not HAS_TIKTOKEN or not self.token_analyzer:
-            return {
-                'available': False,
-                'reason': 'Tiktoken not available',
-                'stats': self.get_stats()
-            }
-        
-        try:
-            messages = self.get_messages(include_system=True)
-            total_tokens = self.token_analyzer.count_tokens_for_messages(messages)
-            
-            return {
-                'available': True,
-                'model': self.model_name,
-                'encoding': self.token_analyzer.encoding_name,
-                'total_tokens': total_tokens,
-                'message_count': len(self.messages),
-                'system_prompt_tokens': self.token_analyzer.count_tokens(self._system_prompt.content) if self._system_prompt else 0,
-                'system_tokens': self.stats.get('system_tokens', 0),
-                'user_tokens': self.stats.get('user_tokens', 0),
-                'agent_tokens': self.stats.get('agent_tokens', 0),
-                'tool_tokens': self.stats.get('tool_tokens', 0),
-                'context_window': self.context_window,
-                'context_buffer': self.context_buffer,
-                'available_tokens': max(0, self.context_window - total_tokens),
-                'context_usage_percent': round((total_tokens / self.context_window) * 100, 1) if self.context_window > 0 else 0,
-                'messages_trimmed': self.stats.get('messages_trimmed', 0),
-            }
-        except Exception as e:
-            logger.warning(f"Token analysis failed: {e}")
-            return {
-                'available': False,
-                'error': str(e),
-                'stats': self.get_stats()
-            }
-    
-    def get_token_report(self) -> str:
-        """
-        Generate a human-readable token usage report.
-        
-        Returns:
-            Formatted report string
-        """
-        analysis = self.get_token_analysis()
-        
-        if not analysis.get('available'):
-            return f"Token analysis unavailable: {analysis.get('reason', analysis.get('error', 'Unknown'))}"
-        
-        report = f"""
-========== TOKEN ANALYSIS REPORT ==========
-Chat ID: {self.chat_id}
-Model: {analysis['model']} ({analysis['encoding']})
-
-Token Breakdown:
-  System Tokens: {analysis['system_tokens']:,}
-  User Tokens: {analysis['user_tokens']:,}
-  Agent Tokens: {analysis['agent_tokens']:,}
-  Tool Tokens: {analysis['tool_tokens']:,}
-  Total Tokens: {analysis['total_tokens']:,}
-
-Context Window: {analysis['context_window']:,} tokens
-Context Usage: {analysis['context_usage_percent']}%
-Available Tokens: {analysis['available_tokens']:,}
-
-Messages: {analysis['message_count']}
-Messages Trimmed: {analysis['messages_trimmed']}
-==========================================
-        """
-        return report
     
     def to_dict(self) -> Dict[str, Any]:
         """
