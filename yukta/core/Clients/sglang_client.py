@@ -27,7 +27,6 @@ class SGLangClient(BaseLLMClient):
         if not base_url or base_url.strip() == "":
             base_url = "http://localhost:30000"
         super().__init__(model_name, base_url, **kwargs)
-    @trace_yukta(kind=OpenInferenceSpanKindValues.LLM)
     def generate(
         self,
         messages: List[Dict[str, str]],

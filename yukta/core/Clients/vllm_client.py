@@ -98,7 +98,6 @@ class VLLMClient(BaseLLMClient):
         logger.info(f"Using context window: {context_size} tokens")
         return context_size
     
-    @trace_yukta(kind=OpenInferenceSpanKindValues.LLM)
     def generate(
         self,
         messages: List[Dict[str, str]],

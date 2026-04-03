@@ -28,8 +28,6 @@ class RemoteEndpointClient(BaseLLMClient):
         if api_key:
             kwargs["api_key"] = api_key
         super().__init__(model_name, base_url, **kwargs)
-    
-    @trace_yukta(kind=OpenInferenceSpanKindValues.LLM)
     def generate(
         self,
         messages: List[Dict[str, str]],

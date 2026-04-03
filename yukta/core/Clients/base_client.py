@@ -105,7 +105,6 @@ class BaseLLMClient(ABC):
         self.config = kwargs
     
     @abstractmethod
-    @trace_yukta(kind=OpenInferenceSpanKindValues.LLM)
     def generate(
         self,
         messages: List[Dict[str, str]],
@@ -124,7 +123,6 @@ class BaseLLMClient(ABC):
             LLMResponse object
         """
         pass
-    @trace_yukta(kind=OpenInferenceSpanKindValues.LLM)
     def _make_request(
         self,
         endpoint: str,

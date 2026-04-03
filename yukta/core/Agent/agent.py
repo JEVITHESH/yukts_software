@@ -551,7 +551,6 @@ class Agent:
         else:
             return f"Error: {tool_result.get('error', 'Unknown error')}"
     
-    @trace_yukta(kind=OpenInferenceSpanKindValues.CHAIN)
     def run(
         self,
         user_message: str,

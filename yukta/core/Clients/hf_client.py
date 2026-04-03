@@ -31,7 +31,6 @@ class HuggingFaceClient(BaseLLMClient):
             
         kwargs["api_key"] = hf_token
         super().__init__(model_name, base_url, **kwargs)
-    @trace_yukta(kind=OpenInferenceSpanKindValues.LLM)
     def generate(
         self,
         messages: List[Dict[str, str]],

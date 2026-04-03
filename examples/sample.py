@@ -34,7 +34,7 @@ config = AgentConfig(
     auto_save_chat=False,  # Disable old UUID-based chat saving
     auto_save_chat_history=True,  # Enable new agent-name based chat history saving
     chat_history_dir="./chats",  # Directory for auto-saved chat histories
-    log_level=logging.INFO,
+    log_level=logging.DEBUG,
     enable_logging=False,
     memory_log_level=logging.INFO,
     enable_memory_logging=False,
@@ -42,7 +42,7 @@ config = AgentConfig(
 )
 
 # Initialize Ollama LLM client
-llm1 = OllamaClient(model_name="qwen3:4b")
+llm1 = VLLMClient(model_name="minimax-m2.5",base_url="http://192.168.200.46:11458",optioms_override={"think":False})
 
 # Create agent with Ollama client
 agent1 = create_agent(
