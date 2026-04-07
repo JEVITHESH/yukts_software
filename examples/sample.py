@@ -75,8 +75,7 @@ for i, question in enumerate(questions, 1):
         # This will actually call the Ollama model using the llm_client
         response = agent1.invoke(
             input=question,
-            use_llm=True,  # Use LLM for reasoning and response
-            max_iterations=5  # Allow up to 5 iterations for tool calling
+            use_llm=True  # Use LLM for reasoning and response
         )
         
         print(f"Agent: {response}\n")

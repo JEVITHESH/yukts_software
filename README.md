@@ -271,8 +271,7 @@ agent = create_agent(
 # Agent will automatically use tools
 response = agent.invoke(
     "What are the current prices of AAPL and GOOGL?",
-    use_llm=True,
-    max_iterations=5  # Allow multiple tool calls
+    use_llm=True
 )
 print(response)
 ```
@@ -517,8 +516,7 @@ agent = create_agent(
 # Agent will call remote tools as needed
 response = agent.invoke(
     "What's the weather in London? Also convert 100 USD to GBP at rate 0.79",
-    use_llm=True,
-    max_iterations=5
+    use_llm=True
 )
 print(response)
 ```
@@ -617,8 +615,7 @@ for query in queries:
     print(f"\n📊 Query: {query}\n")
     response = agent.invoke(
         query,
-        use_llm=True,
-        max_iterations=5
+        use_llm=True
     )
     print(f"💡 Analysis:\n{response}\n")
     print("-"*70)
@@ -740,7 +737,7 @@ agent = create_agent(
 )
 
 # Methods
-agent.invoke(input: str, use_llm: bool = True, max_iterations: int = 5) -> str
+agent.invoke(input: str, use_llm: bool = True) -> str
 agent.get_chat_stats() -> dict
 agent.set_memory(memory: Memory) -> None
 agent.save_chat(filepath: str) -> None

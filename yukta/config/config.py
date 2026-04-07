@@ -37,7 +37,6 @@ class Config:
     # Agent defaults
     DEFAULT_AGENT_NAME = os.getenv("DEFAULT_AGENT_NAME", "Yukta Agent")
     DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
-    DEFAULT_MAX_ITERATIONS = int(os.getenv("DEFAULT_MAX_ITERATIONS", "10"))
     DEFAULT_TIMEOUT = int(os.getenv("DEFAULT_TIMEOUT", "300"))
     
     # Tool settings
@@ -138,7 +137,6 @@ class Config:
             "exports_dir": str(cls.EXPORTS_DIR),
             "default_agent_name": cls.DEFAULT_AGENT_NAME,
             "default_temperature": cls.DEFAULT_TEMPERATURE,
-            "default_max_iterations": cls.DEFAULT_MAX_ITERATIONS,
             "log_level": cls.LOG_LEVEL,
             "memory_max_tokens": cls.MEMORY_MAX_TOKENS,
             "memory_auto_save": cls.MEMORY_AUTO_SAVE,

@@ -554,7 +554,6 @@ class Agent:
     def run(
         self,
         user_message: str,
-        max_iterations: Optional[int] = None,
         reset_conversation: bool = False
     ) -> Dict[str, Any]:
         """
@@ -562,7 +561,6 @@ class Agent:
         
         Args:
             user_message: User's input message
-            max_iterations: Maximum iterations (overrides config if provided)
             reset_conversation: Whether to reset conversation history
             
         Returns:
@@ -575,7 +573,7 @@ class Agent:
             raise RuntimeError("No LLM client configured. Set one using set_llm_client() or pass in constructor.")
         
         
-        logger.info(f"[{self.agent_id[:8]}] Starting agent run: user_message_len={len(user_message)}, max_iterations={max_iterations or self.config.max_iterations}")
+        logger.info(f"[{self.agent_id[:8]}] Starting agent run: user_message_len={len(user_message)}")
         
         # Reset conversation if requested
         if reset_conversation:
@@ -605,7 +603,6 @@ class Agent:
             "content": user_message
         })
         
-        max_iter = max_iterations or self.config.max_iterations
         iterations = 0
         final_response = ""
         tool_calls_made = []
@@ -618,12 +615,12 @@ class Agent:
         
         self.update_state(status="running")
         
-        while iterations < max_iter:
+        while True:
             iterations += 1
             self.state["iterations"] = iterations
             
             if self.config.verbose:
-                print(f"[Iteration {iterations}/{max_iter}]")
+                print(f"[Iteration {iterations}]")
             
             # Get tools in API format
             tools = format_tools_for_api(self.tools_processor.format_for_llm())
@@ -805,10 +802,6 @@ class Agent:
         
         self.update_state(status="completed")
         
-        if iterations >= max_iter and not final_response:
-            final_response = "Maximum iterations reached without final response."
-            logger.warning(f"[{self.agent_id[:8]}] Maximum iterations reached without final response")
-        
         if self.config.verbose:
             print(f"\n{'='*60}")
             print(f"Agent completed in {iterations} iteration(s)")
@@ -848,7 +841,6 @@ class Agent:
         tool_name: Optional[str] = None,
         tool_arguments: Optional[Dict[str, Any]] = None,
         use_llm: bool = True,
-        max_iterations: Optional[int] = None,
         reset_conversation: bool = False,
         return_full_response: bool = False
     ) -> Any:
@@ -865,7 +857,6 @@ class Agent:
             tool_name: Optional tool name for direct tool execution (bypasses LLM)
             tool_arguments: Arguments for direct tool execution (used with tool_name)
             use_llm: Whether to use LLM for generation (default: True)
-            max_iterations: Maximum agent iterations for LLM mode
             reset_conversation: Whether to reset conversation history before invocation
             return_full_response: Whether to return full response dict or just the result/response
             
@@ -939,7 +930,6 @@ class Agent:
             
             result = self.run(
                 user_message=input,
-                max_iterations=max_iterations,
                 reset_conversation=reset_conversation
             )
             
@@ -969,7 +959,6 @@ class Agent:
             try:
                 result = self.run(
                     user_message=input,
-                    max_iterations=1,  # Single iteration for simple generation
                     reset_conversation=reset_conversation
                 )
                 

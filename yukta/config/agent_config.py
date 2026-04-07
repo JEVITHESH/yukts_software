@@ -9,7 +9,6 @@ class AgentConfig:
     Configuration class for agent settings.
     
     Attributes:
-        max_iterations: Maximum number of agent iterations
         temperature: LLM temperature setting
         verbose: Whether to print verbose output
         timeout: Timeout in seconds for agent operations
@@ -28,7 +27,6 @@ class AgentConfig:
     
     def __init__(
         self,
-        max_iterations: int = 10,
         temperature: float = 0.7,
         verbose: bool = False,
         timeout: int = 300,
@@ -45,7 +43,6 @@ class AgentConfig:
         storage_backend: Optional[BaseStorageBackend] = None,
         **additional_settings
     ):
-        self.max_iterations = max_iterations
         self.temperature = temperature
         self.verbose = verbose
         self.timeout = timeout
@@ -96,7 +93,6 @@ class AgentConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
         return {
-            "max_iterations": self.max_iterations,
             "temperature": self.temperature,
             "verbose": self.verbose,
             "timeout": self.timeout,
