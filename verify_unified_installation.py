@@ -52,7 +52,7 @@ def main():
         ],
         'Observability & Tracing': [
             ('opentelemetry-api', 'opentelemetry'),
-            ('opentelemetry-sdk', 'opentelemetry_sdk'),
+            ('opentelemetry-sdk', 'opentelemetry.sdk'),
             ('openinference-semantic-conventions', 'openinference'),
             ('arize-phoenix', 'phoenix'),
         ],
