@@ -36,7 +36,8 @@ class LMStudioClient(BaseLLMClient):
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        stream: bool = False
+        stream: bool = False,
+        **kwargs
     ) -> LLMResponse:
         """
         Generate response using LM Studio's local server.
@@ -44,8 +45,7 @@ class LMStudioClient(BaseLLMClient):
         payload = {
             "model": self.model_name,
             "messages": messages,
-            "temperature": self.temperature,
-            "stream": False
+            **kwargs
         }
         
         if self.max_tokens:

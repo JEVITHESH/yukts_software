@@ -33,7 +33,7 @@ class OllamaClient(BaseLLMClient):
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        stream: bool = False
+        **kwargs
     ) -> LLMResponse:
         """
         Generate response using Ollama.
@@ -49,10 +49,7 @@ class OllamaClient(BaseLLMClient):
         payload = {
             "model": self.model_name,
             "messages": messages,
-            "stream": False,
-            "options": {
-                "temperature": self.temperature,
-            }
+            **kwargs
         }
         
         if self.max_tokens:

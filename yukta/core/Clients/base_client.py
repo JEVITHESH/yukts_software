@@ -109,7 +109,8 @@ class BaseLLMClient(ABC):
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        stream: bool = False
+        stream: bool = False,
+        **kwargs
     ) -> LLMResponse:
         """
         Generate a response from the LLM.
@@ -127,7 +128,8 @@ class BaseLLMClient(ABC):
         self,
         endpoint: str,
         payload: Dict[str, Any],
-        stream: bool = False
+        stream: bool = False,
+        **kwargs
     ) -> requests.Response:
         """
         Make an HTTP request to the API.
@@ -170,7 +172,8 @@ class BaseLLMClient(ABC):
                 json=clean_payload,
                 headers=headers,
                 stream=stream,
-                timeout=self.config.get("timeout", 300)
+                timeout=self.config.get("timeout", 300),
+                **kwargs
             )
             response.raise_for_status()
             return response

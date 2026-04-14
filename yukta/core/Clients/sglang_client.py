@@ -31,7 +31,7 @@ class SGLangClient(BaseLLMClient):
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        stream: bool = False
+        **kwargs
     ) -> LLMResponse:
         """
         Generate response using SGLang.
@@ -39,8 +39,7 @@ class SGLangClient(BaseLLMClient):
         payload = {
             "model": self.model_name,
             "messages": messages,
-            "temperature": self.temperature,
-            "stream": False
+            **kwargs
         }
         
         if self.max_tokens:

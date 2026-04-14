@@ -94,6 +94,9 @@ class VLLMClient(BaseLLMClient):
             Context window size in tokens. Defaults to 8192 if unavailable.
         """
         model_info = self.get_model_info()
+        print("*" * 50)
+        print(f"Model info: {model_info}")
+        print("*" * 50)
         context_size = model_info.get("max_model_len", 8192)
         logger.info(f"Using context window: {context_size} tokens")
         return context_size
@@ -102,7 +105,7 @@ class VLLMClient(BaseLLMClient):
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        stream: bool = False
+        **kwargs
     ) -> LLMResponse:
         """
         Generate response using vLLM.
@@ -115,11 +118,11 @@ class VLLMClient(BaseLLMClient):
         Returns:
             LLMResponse object
         """
+    
         payload = {
             "model": self.model_name,
             "messages": messages,
-            "temperature": self.temperature,
-            "stream": False
+            **kwargs
         }
         
         if self.max_tokens:
