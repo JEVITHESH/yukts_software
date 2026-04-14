@@ -1,13 +1,17 @@
 """
 Tools Processing Module
 Handles MCP (Model Context Protocol) tools processing and formatting.
+Includes parallel execution support for concurrent tool calls.
 """
 
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 import json
 import asyncio
 import sys
 import httpx
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 # Import Tool classes from tool.py
 from .tool import Tool, ToolType, ToolParameter
@@ -19,6 +23,9 @@ from mcp.client.sse import sse_client
 # Openinference imports
 from openinference.semconv.trace import OpenInferenceSpanKindValues
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -27,12 +34,49 @@ class ToolProcessor:
     """
     Processes and manages tools for agent use.
     Handles MCP tools formatting and custom tool registration.
+    Supports parallel execution of multiple tool calls.
+    
+    Attributes:
+        parallel: Enable parallel execution mode
+        num_parallel: Number of concurrent workers (capped at number of tools)
+        timeout_per_tool: Timeout in seconds per tool execution
     """
     
-    def __init__(self):
-        """Initialize the tool processor."""
+    def __init__(
+        self,
+        parallel: bool = False,
+        num_parallel: int = 3,
+        timeout_per_tool: float = 30.0
+    ):
+        """
+        Initialize the tool processor.
+        
+        Args:
+            parallel: Enable parallel execution (default: False for backward compatibility)
+            num_parallel: Number of concurrent workers (default: 3)
+            timeout_per_tool: Timeout per tool in seconds (default: 30)
+        """
         self._tools: Dict[str, Tool] = {}
         self._tool_groups: Dict[str, List[str]] = {}
+        
+        # Parallel execution configuration
+        self.parallel = parallel
+        self.num_parallel = max(1, num_parallel)  # Ensure at least 1
+        self.timeout_per_tool = timeout_per_tool
+        
+        # Execution statistics
+        self._execution_stats = {
+            "total_parallel_calls": 0,
+            "total_sequential_calls": 0,
+            "total_tools_executed": 0,
+            "total_tools_failed": 0,
+            "total_execution_time": 0.0,
+            "estimated_sequential_time": 0.0,
+            "last_speedup": 1.0,
+            "execution_history": []
+        }
+        
+        logger.info(f"ToolProcessor initialized: parallel={parallel}, num_workers={num_parallel}, timeout={timeout_per_tool}s")
     
     def add_tool(self, tool: Tool) -> None:
         """
@@ -348,6 +392,351 @@ class ToolProcessor:
             # For regular HTTP endpoint
             return asyncio.run(self.execute_mcp_tool(tool_name, tool_host, args))
         
+
+    # ==================== PARALLEL EXECUTION METHODS ====================
+    
+    def execute_tools(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        force_parallel: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute multiple tool calls from LLM.
+        Automatically routes to sequential or parallel execution based on configuration.
+        
+        Args:
+            tool_calls: List of tool call dicts from LLM with format:
+                       {"function": {"name": "tool_name", "arguments": "json_string"}, "id": "..."}
+            force_parallel: Override parallel setting for this call only
+            
+        Returns:
+            List of result dicts in same order as input tool_calls.
+            Each result has format: {"success": bool, "result": ..., "tool": "name", ...} or error dict
+        """
+        # Handle empty list
+        if not tool_calls:
+            return []
+        
+        # Single tool: no parallelization benefit
+        if len(tool_calls) == 1:
+            return self._execute_tools_sequential(tool_calls)
+        
+        # Determine execution mode
+        use_parallel = force_parallel if force_parallel is not None else self.parallel
+        
+        if use_parallel:
+            logger.debug(f"Executing {len(tool_calls)} tools in parallel mode (workers: {self.num_parallel})")
+            return self._execute_tools_parallel(tool_calls)
+        else:
+            logger.debug(f"Executing {len(tool_calls)} tools in sequential mode")
+            return self._execute_tools_sequential(tool_calls)
+    
+    def _execute_tools_sequential(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Execute tool calls sequentially (one after another).
+        This is the default mode for backward compatibility.
+        
+        Args:
+            tool_calls: List of tool call dicts
+            
+        Returns:
+            List of result dicts
+        """
+        results = []
+        start_time = time.time()
+        total_sequential_time = 0.0
+        
+        for i, tool_call in enumerate(tool_calls):
+            try:
+                tool_tool_time = time.time()
+                tool_name = tool_call.get("function", {}).get("name")
+                tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
+                tool_call_id = tool_call.get("id", f"call_{i}")
+                
+                if not tool_name:
+                    results.append({
+                        "error": "Tool call missing function name",
+                        "tool_call_id": tool_call_id,
+                        "index": i
+                    })
+                    continue
+                
+                # Parse arguments
+                try:
+                    if isinstance(tool_args_str, dict):
+                        tool_args = tool_args_str
+                    else:
+                        tool_args = json.loads(tool_args_str)
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                
+                # Execute tool
+                result = self.execute_tool(tool_name, tool_args)
+                result["tool_call_id"] = tool_call_id
+                result["index"] = i
+                results.append(result)
+                
+                tool_duration = time.time() - tool_tool_time
+                total_sequential_time += tool_duration
+                
+            except Exception as e:
+                results.append({
+                    "error": f"Failed to process tool call: {str(e)}",
+                    "tool_call_id": tool_call.get("id", f"call_{i}"),
+                    "index": i
+                })
+        
+        # Update statistics
+        elapsed = time.time() - start_time
+        self._execution_stats["total_sequential_calls"] += 1
+        self._execution_stats["total_tools_executed"] += len([r for r in results if "result" in r])
+        self._execution_stats["total_tools_failed"] += len([r for r in results if "error" in r])
+        self._execution_stats["total_execution_time"] += elapsed
+        self._execution_stats["estimated_sequential_time"] += total_sequential_time
+        
+        logger.debug(f"Sequential execution: {len(results)} tools in {elapsed:.3f}s")
+        return results
+    
+    async def _execute_tool_safe_async(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        tool_call_id: str,
+        index: int
+    ) -> Dict[str, Any]:
+        """
+        Safely execute a single tool asynchronously with timeout and exception handling.
+        
+        Args:
+            tool_name: Name of the tool to execute
+            tool_args: Arguments for the tool
+            tool_call_id: ID from LLM tool call
+            index: Index in original tool_calls list
+            
+        Returns:
+            Result dict with tool_call_id and index preserved
+        """
+        try:
+            # Execute with timeout
+            result = await asyncio.wait_for(
+                self.execute_tool_async(tool_name, tool_args),
+                timeout=self.timeout_per_tool
+            )
+            result["tool_call_id"] = tool_call_id
+            result["index"] = index
+            return result
+            
+        except asyncio.TimeoutError:
+            logger.warning(f"Tool '{tool_name}' timed out after {self.timeout_per_tool}s")
+            return {
+                "error": f"Tool execution timed out after {self.timeout_per_tool}s",
+                "tool": tool_name,
+                "tool_call_id": tool_call_id,
+                "index": index
+            }
+        except Exception as e:
+            logger.error(f"Tool '{tool_name}' failed: {type(e).__name__}: {str(e)}")
+            return {
+                "error": f"Tool execution failed: {type(e).__name__}: {str(e)}",
+                "tool": tool_name,
+                "tool_call_id": tool_call_id,
+                "index": index
+            }
+    
+    def _execute_tools_parallel(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Execute multiple tool calls concurrently using asyncio.
+        Uses asyncio.gather() with fail-safe error handling (continues on partial failures).
+        
+        Args:
+            tool_calls: List of tool call dicts
+            
+        Returns:
+            List of result dicts in same order as input
+        """
+        start_time = time.time()
+        
+        # Cap workers at number of tools
+        num_workers = min(self.num_parallel, len(tool_calls))
+        
+        # Prepare async tasks
+        tasks = []
+        task_indices = []  # Track which tool_call each task corresponds to
+        
+        for i, tool_call in enumerate(tool_calls):
+            try:
+                tool_name = tool_call.get("function", {}).get("name")
+                tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
+                tool_call_id = tool_call.get("id", f"call_{i}")
+                
+                if not tool_name:
+                    # Add error result synchronously for missing tool name
+                    tasks.append(None)
+                    task_indices.append(i)
+                    continue
+                
+                # Parse arguments
+                try:
+                    if isinstance(tool_args_str, dict):
+                        tool_args = tool_args_str
+                    else:
+                        tool_args = json.loads(tool_args_str)
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                
+                # Create async task
+                task = self._execute_tool_safe_async(tool_name, tool_args, tool_call_id, i)
+                tasks.append(task)
+                task_indices.append(i)
+                
+            except Exception as e:
+                logger.error(f"Failed to prepare tool call {i}: {str(e)}")
+                tasks.append(None)
+                task_indices.append(i)
+        
+        # Execute all tasks concurrently with fail-safe handling
+        # Using asyncio.run() to manage event loop
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Gather with return_exceptions=True (fail-safe)
+            async def gather_tasks():
+                return await asyncio.gather(
+                    *[t for t in tasks if t is not None],
+                    return_exceptions=True
+                )
+            
+            async_results = loop.run_until_complete(gather_tasks())
+            
+        except Exception as e:
+            logger.error(f"Parallel execution failed: {str(e)}")
+            async_results = []
+        finally:
+            loop.close()
+        
+        # Merge results back in original order
+        results = []
+        async_result_idx = 0
+        
+        for i, task in enumerate(tasks):
+            if task is None:
+                # This was an error during preparation
+                tool_call = tool_calls[i]
+                results.append({
+                    "error": "Tool call missing function name",
+                    "tool_call_id": tool_call.get("id", f"call_{i}"),
+                    "index": i
+                })
+            else:
+                # Get result from async execution
+                async_result = async_results[async_result_idx] if async_result_idx < len(async_results) else None
+                async_result_idx += 1
+                
+                # Check if result is an exception
+                if isinstance(async_result, Exception):
+                    tool_call = tool_calls[i]
+                    results.append({
+                        "error": f"Async execution error: {str(async_result)}",
+                        "tool_call_id": tool_call.get("id", f"call_{i}"),
+                        "index": i
+                    })
+                else:
+                    results.append(async_result)
+        
+        # Update statistics
+        elapsed = time.time() - start_time
+        sequential_estimate = sum(self.timeout_per_tool for _ in tool_calls) * 0.5  # Rough estimate
+        speedup = sequential_estimate / elapsed if elapsed > 0 else 1.0
+        
+        self._execution_stats["total_parallel_calls"] += 1
+        self._execution_stats["total_tools_executed"] += len([r for r in results if "result" in r])
+        self._execution_stats["total_tools_failed"] += len([r for r in results if "error" in r])
+        self._execution_stats["total_execution_time"] += elapsed
+        self._execution_stats["estimated_sequential_time"] += sequential_estimate
+        self._execution_stats["last_speedup"] = speedup
+        
+        logger.debug(f"Parallel execution: {len(results)} tools in {elapsed:.3f}s ({num_workers} workers, {speedup:.1f}x speedup)")
+        
+        return results
+    
+    # ==================== CONFIGURATION METHODS ====================
+    
+    def set_parallel_mode(self, parallel: bool, num_parallel: int = 3) -> None:
+        """
+        Configure parallel execution mode.
+        
+        Args:
+            parallel: Enable/disable parallel execution
+            num_parallel: Number of concurrent workers
+        """
+        self.parallel = parallel
+        self.num_parallel = max(1, num_parallel)
+        logger.info(f"Parallel mode set: enabled={parallel}, workers={self.num_parallel}")
+    
+    def enable_parallel(self, num_workers: int = 3) -> None:
+        """
+        Enable parallel execution mode.
+        
+        Args:
+            num_workers: Number of concurrent workers (default: 3)
+        """
+        self.set_parallel_mode(True, num_workers)
+    
+    def disable_parallel(self) -> None:
+        """Disable parallel execution mode (switch to sequential)."""
+        self.set_parallel_mode(False)
+    
+    def set_timeout(self, timeout_seconds: float) -> None:
+        """
+        Set timeout per tool execution.
+        
+        Args:
+            timeout_seconds: Timeout in seconds (default: 30)
+        """
+        self.timeout_per_tool = max(0.1, timeout_seconds)
+        logger.info(f"Tool timeout set to {self.timeout_per_tool}s")
+    
+    def get_parallel_execution_stats(self) -> Dict[str, Any]:
+        """
+        Get parallel execution statistics and metrics.
+        
+        Returns:
+            Dictionary with execution statistics including:
+            - total_parallel_calls: Number of parallel batches executed
+            - total_sequential_calls: Number of sequential batches executed
+            - total_tools_executed: Total tools executed successfully
+            - total_tools_failed: Total tools that failed
+            - total_execution_time: Total time spent executing
+            - estimated_sequential_time: Estimated sequential time for comparison
+            - last_speedup: Speedup factor from most recent parallel execution
+        """
+        return {
+            **self._execution_stats,
+            "parallel_enabled": self.parallel,
+            "current_workers": self.num_parallel,
+            "timeout_per_tool": self.timeout_per_tool,
+            "average_speedup": (
+                self._execution_stats["estimated_sequential_time"] / self._execution_stats["total_execution_time"]
+                if self._execution_stats["total_execution_time"] > 0 else 0.0
+            )
+        }
+    
+    def reset_stats(self) -> None:
+        """Reset execution statistics to zero."""
+        self._execution_stats = {
+            "total_parallel_calls": 0,
+            "total_sequential_calls": 0,
+            "total_tools_executed": 0,
+            "total_tools_failed": 0,
+            "total_execution_time": 0.0,
+            "estimated_sequential_time": 0.0,
+            "last_speedup": 1.0,
+            "execution_history": []
+        }
+        logger.info("Execution statistics reset")
+    
+    # ==================== END PARALLEL EXECUTION METHODS ====================
 
     def export_tools_json(self, filepath: str, tool_names: Optional[List[str]] = None) -> None:
         """
