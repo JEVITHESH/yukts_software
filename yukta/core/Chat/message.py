@@ -3,69 +3,148 @@ Message Module
 Defines message structure and roles for agent conversations.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 from enum import Enum
 import json
+import logging
+import base64
+
+logger = logging.getLogger(__name__)
 
 
-def _make_json_serializable(obj: Any) -> Any:
+def _make_json_serializable(obj: Any, warnings: Optional[List[str]] = None) -> Tuple[Any, List[str]]:
     """
     Recursively convert objects to JSON-serializable format.
-    Handles protobuf objects, enums, repeated fields, and other non-serializable types.
+    Handles protobuf objects, enums, repeated fields, NumPy arrays, PyTorch tensors, bytes, and other non-serializable types.
     
     Args:
         obj: Object to convert
+        warnings: List to accumulate warning messages (created if None)
         
     Returns:
-        JSON-serializable version of the object
+        Tuple of (JSON-serializable version of object, list of warnings)
     """
+    if warnings is None:
+        warnings = []
+    
     # Handle None
     if obj is None:
-        return None
+        return None, warnings
     
     # Handle basic JSON-serializable types
     if isinstance(obj, (str, int, float, bool)):
-        return obj
+        return obj, warnings
     
-    # Handle lists
+    # Handle bytes - convert to base64
+    if isinstance(obj, bytes):
+        try:
+            result = base64.b64encode(obj).decode('ascii')
+            warnings.append(f"Bytes object converted to base64 string (size: {len(obj)} bytes)")
+            return result, warnings
+        except Exception as e:
+            warnings.append(f"Failed to convert bytes: {e}")
+            return str(obj), warnings
+    
+    # Handle lists and tuples
     if isinstance(obj, (list, tuple)):
-        return [_make_json_serializable(item) for item in obj]
+        result = []
+        for i, item in enumerate(obj):
+            converted, item_warnings = _make_json_serializable(item, warnings)
+            result.append(converted)
+            warnings.extend(item_warnings)
+        return result, warnings
     
     # Handle dictionaries
     if isinstance(obj, dict):
-        return {
-            _make_json_serializable(k): _make_json_serializable(v)
-            for k, v in obj.items()
-        }
+        result = {}
+        for k, v in obj.items():
+            converted_key, key_warnings = _make_json_serializable(k, warnings)
+            converted_val, val_warnings = _make_json_serializable(v, warnings)
+            result[converted_key] = converted_val
+            warnings.extend(key_warnings + val_warnings)
+        return result, warnings
     
-    # Handle protobuf objects
+    # Handle NumPy arrays
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            try:
+                result = obj.tolist()
+                warnings.append(f"NumPy array {obj.shape} converted to list (dtype: {obj.dtype})")
+                return result, warnings
+            except Exception as e:
+                warnings.append(f"Failed to convert NumPy array: {e}")
+                return f"<numpy.ndarray shape={obj.shape} dtype={obj.dtype}>", warnings
+    except ImportError:
+        pass
+    
+    # Handle PyTorch tensors
+    try:
+        import torch
+        if isinstance(obj, torch.Tensor):
+            try:
+                result = obj.detach().cpu().tolist() if obj.numel() < 10000 else f"<torch.Tensor shape={tuple(obj.shape)}>"
+                if isinstance(result, str):
+                    warnings.append(f"Large PyTorch tensor {tuple(obj.shape)} converted to shape descriptor (too large to convert)")
+                else:
+                    warnings.append(f"PyTorch tensor {tuple(obj.shape)} converted to list")
+                return result, warnings
+            except Exception as e:
+                warnings.append(f"Failed to convert PyTorch tensor: {e}")
+                return f"<torch.Tensor shape={tuple(obj.shape)}>", warnings
+    except ImportError:
+        pass
+    
+    # Handle protobuf objects with DESCRIPTOR
     if hasattr(obj, 'DESCRIPTOR'):
-        return _make_json_serializable(obj.__dict__)
+        try:
+            result, dict_warnings = _make_json_serializable(obj.__dict__, warnings)
+            warnings.extend(dict_warnings)
+            return result, warnings
+        except Exception as e:
+            warnings.append(f"Failed to convert protobuf object: {e}")
+            return str(obj), warnings
     
     # Handle protobuf repeated fields (RepeatedScalarContainer, RepeatedCompositeContainer)
     if type(obj).__name__ in ('RepeatedScalarContainer', 'RepeatedCompositeContainer'):
-        return [_make_json_serializable(item) for item in obj]
+        result = []
+        for item in obj:
+            converted, item_warnings = _make_json_serializable(item, warnings)
+            result.append(converted)
+            warnings.extend(item_warnings)
+        return result, warnings
     
     # Handle enums
     if hasattr(obj, 'value'):
         try:
-            return str(obj.value)
+            return str(obj.value), warnings
         except:
             pass
+    
+    # Handle datetime objects
+    if isinstance(obj, datetime):
+        return obj.isoformat(), warnings
     
     # Handle objects with __dict__
     if hasattr(obj, '__dict__'):
         try:
-            return _make_json_serializable(obj.__dict__)
-        except:
-            pass
+            result, dict_warnings = _make_json_serializable(obj.__dict__, warnings)
+            warnings.extend(dict_warnings)
+            return result, warnings
+        except Exception as e:
+            warnings.append(f"Failed to convert object with __dict__: {e}")
+            return str(obj), warnings
     
     # Fallback: convert to string
     try:
-        return str(obj)
-    except:
-        return None
+        result = str(obj)
+        warnings.append(f"Converted {type(obj).__name__} object to string (lossy conversion)")
+        return result, warnings
+    except Exception as e:
+        warnings.append(f"Failed to convert {type(obj).__name__} object: {e}")
+        return None, warnings
+
 
 
 class Role(Enum):
@@ -92,6 +171,7 @@ class Message:
         timestamp: When the message was created
         token_count: Estimated token count
         message_id: Unique message identifier
+        sanitization_log: Audit log of any sanitization/conversion performed
     """
     
     def __init__(
@@ -119,20 +199,59 @@ class Message:
             raise ValueError(f"Invalid role: {role}. Must be one of {[r.value for r in Role]}")
         
         self.role = role
+        
+        # Audit log for tracking sanitization/conversions
+        self.sanitization_log: List[str] = []
+        
         # Ensure content is always a string
         if not isinstance(content, str):
-            # Clean protobuf objects and other non-serializable types first
+            # Clean non-serializable objects first
             try:
-                cleaned_content = _make_json_serializable(content)
+                cleaned_content, warnings = _make_json_serializable(content)
+                if warnings:
+                    logger.debug(f"[MESSAGE] Content sanitization warnings: {'; '.join(warnings)}")
+                    self.sanitization_log.extend([f"content: {w}" for w in warnings])
                 self.content = json.dumps(cleaned_content) if isinstance(cleaned_content, (dict, list)) else str(cleaned_content)
             except Exception as e:
-                # Fallback: just convert to string
+                msg = f"Failed to sanitize content (fallback to string): {e}"
+                logger.warning(f"[MESSAGE] {msg}")
+                self.sanitization_log.append(f"content: {msg}")
                 self.content = str(content)
         else:
             self.content = content
-        self.tool_calls = tool_calls or []
+        
+        # Sanitize tool_calls
+        self.tool_calls = []
+        if tool_calls:
+            try:
+                for i, tool_call in enumerate(tool_calls):
+                    cleaned_call, warnings = _make_json_serializable(tool_call)
+                    if warnings:
+                        logger.debug(f"[MESSAGE] Tool call {i} sanitization warnings: {'; '.join(warnings)}")
+                        self.sanitization_log.extend([f"tool_call[{i}]: {w}" for w in warnings])
+                    self.tool_calls.append(cleaned_call)
+            except Exception as e:
+                msg = f"Failed to sanitize tool_calls (using original): {e}"
+                logger.warning(f"[MESSAGE] {msg}")
+                self.sanitization_log.append(f"tool_calls: {msg}")
+                self.tool_calls = tool_calls
+        
+        # Sanitize metadata
+        self.metadata = {}
+        if metadata:
+            try:
+                cleaned_meta, warnings = _make_json_serializable(metadata)
+                if warnings:
+                    logger.debug(f"[MESSAGE] Metadata sanitization warnings: {'; '.join(warnings)}")
+                    self.sanitization_log.extend([f"metadata: {w}" for w in warnings])
+                self.metadata = cleaned_meta if isinstance(cleaned_meta, dict) else {}
+            except Exception as e:
+                msg = f"Failed to sanitize metadata (using original dict): {e}"
+                logger.warning(f"[MESSAGE] {msg}")
+                self.sanitization_log.append(f"metadata: {msg}")
+                self.metadata = metadata if isinstance(metadata, dict) else {}
+        
         self.tool_call_id = tool_call_id
-        self.metadata = metadata or {}
         self.timestamp = datetime.now()
         self.message_id = message_id or self._generate_id()
         self.token_count = self._estimate_tokens()
@@ -196,12 +315,12 @@ class Message:
         """
         Convert message to full dictionary with all fields.
         
-        Includes metadata, timestamps, and IDs for persistence.
+        Includes metadata, timestamps, IDs, and audit logs for persistence.
         
         Returns:
             Complete dictionary representation
         """
-        return {
+        result = {
             "message_id": self.message_id,
             "role": self.role,
             "content": self.content,
@@ -211,6 +330,12 @@ class Message:
             "timestamp": self.timestamp.isoformat(),
             "token_count": self.token_count
         }
+        
+        # Include sanitization audit log if there were any conversions
+        if self.sanitization_log:
+            result["sanitization_log"] = self.sanitization_log
+        
+        return result
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Message':
@@ -244,6 +369,13 @@ class Message:
                 msg.token_count = int(data["token_count"])
             except (ValueError, TypeError):
                 msg.token_count = msg._estimate_tokens()
+        
+        # Restore sanitization log if provided (audit trail)
+        if "sanitization_log" in data:
+            try:
+                msg.sanitization_log = data.get("sanitization_log", [])
+            except:
+                pass
         
         return msg
     

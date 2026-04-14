@@ -186,9 +186,71 @@ class Chat:
         Returns:
             Created Message
         """
+        # Validate tool_call_id reference before adding
+        if tool_call_id:
+            if not self.validate_tool_call_id(tool_call_id):
+                logger.warning(
+                    f"[CHAT] Tool response with unmatched ID '{tool_call_id}'. "
+                    f"No corresponding tool call found in conversation. "
+                    f"This may indicate a context window trim or orphaned response."
+                )
+                if metadata is None:
+                    metadata = {}
+                metadata["orphaned_tool_call"] = True
+        
         msg = tool_message(content, tool_call_id, metadata)
         self.add_message(msg)
         return msg
+    
+    def validate_tool_call_id(self, tool_call_id: str) -> bool:
+        """
+        Validate that a tool_call_id corresponds to an actual tool call in the conversation.
+        
+        Args:
+            tool_call_id: ID to validate
+            
+        Returns:
+            True if a matching tool call exists, False otherwise
+        """
+        if not tool_call_id:
+            return False
+        
+        # Search through all agent messages and their tool_calls
+        for msg in self.messages:
+            if msg.is_agent() and msg.has_tool_calls():
+                for tool_call in msg.tool_calls:
+                    if isinstance(tool_call, dict) and tool_call.get("id") == tool_call_id:
+                        return True
+        
+        return False
+    
+    def scan_orphaned_tool_references(self) -> List[Dict[str, Any]]:
+        """
+        Scan for orphaned tool references (tool results without corresponding tool calls).
+        
+        This can happen due to context window trimming removing tool call requests
+        while keeping tool responses.
+        
+        Returns:
+            List of orphaned tool messages with details
+        """
+        orphaned = []
+        
+        for msg in self.messages:
+            if msg.is_tool():
+                tool_call_id = msg.tool_call_id
+                if not self.validate_tool_call_id(tool_call_id):
+                    orphaned.append({
+                        "message_id": msg.message_id,
+                        "tool_call_id": tool_call_id,
+                        "timestamp": msg.timestamp.isoformat(),
+                        "preview": msg.content[:100] + "..." if len(msg.content) > 100 else msg.content
+                    })
+        
+        if orphaned:
+            logger.warning(f"[CHAT] Found {len(orphaned)} orphaned tool messages (likely due to context trimming)")
+        
+        return orphaned
     
     def get_messages(self, include_system: bool = True) -> List[Dict[str, Any]]:
         """

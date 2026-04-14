@@ -7,6 +7,7 @@ Automatically saves chats when memory limits are exceeded and maintains KV cache
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import logging
+import threading
 from .Chat.chat import ChatManager
 from .storage import BaseStorageBackend
 from ..config.memory_config import MemoryConfig
@@ -85,6 +86,9 @@ class Memory:
         self.session_id = self.chat.chat_id
         
         logger.info(f"Memory initialized: session_id={self.session_id}, max_tokens={self.config.max_tokens}, max_messages={self.config.max_messages}")
+        
+        # Thread safety: RLock for concurrent save/add operations
+        self._state_lock = threading.RLock()
         
         # KV Cache: Store indices of cached messages
         self._kv_cache: List[int] = []
@@ -177,24 +181,29 @@ class Memory:
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """
-        Add a tool response message to memory.
+        Add a tool response message to memory (thread-safe).
         
         Args:
             content: Tool response content
             tool_call_id: ID of the tool call
             metadata: Optional metadata
         """
-        msg=self.chat.add_tool_message(content, tool_call_id, metadata)
-        self.stats["total_messages_added"] += 1
-        self.stats["total_tokens_processed"] += msg.token_count
-        
-        logger.debug(f"[{self.session_id[:8]}] Tool message added: tool_call_id={tool_call_id}, ~{msg.token_count} tokens")
-        
-        # Invalidate cache
-        self._cache_valid = False
-        
-        # Check if we need to save
-        self._check_and_save()
+        with self._state_lock:
+            try:
+                msg = self.chat.add_tool_message(content, tool_call_id, metadata)
+                self.stats["total_messages_added"] += 1
+                self.stats["total_tokens_processed"] += msg.token_count
+                
+                logger.debug(f"[{self.session_id[:8]}] Tool message added: tool_call_id={tool_call_id}, ~{msg.token_count} tokens")
+                
+                # Invalidate cache
+                self._cache_valid = False
+                
+                # Check if we need to save (this also uses the lock)
+                self._check_and_save()
+            except Exception as e:
+                logger.error(f"[{self.session_id[:8]}] Error adding tool message: {e}")
+                raise
     
     def _check_and_save(self) -> None:
         """
@@ -218,34 +227,57 @@ class Memory:
     
     def _handle_memory_overflow(self) -> None:
         """
-        Handle memory overflow by archiving old messages and saving.
+        Handle memory overflow by archiving old messages and saving (with transactional semantics).
+        Uses lock to prevent concurrent modifications during archiving.
         """
-        logger.warning(f"[{self.session_id[:8]}] Memory overflow detected - archiving older messages")
-        
-        # Save current state
-        self.save()
-        
-        # Archive old messages (keep only recent N in active memory)
-        messages_to_keep = self.config.kv_cache_size
-        total_messages = len(self.chat.messages)
-        
-        if total_messages > messages_to_keep:
-            # Archive older messages
-            messages_to_archive = total_messages - messages_to_keep
+        with self._state_lock:
+            logger.warning(f"[{self.session_id[:8]}] Memory overflow detected - archiving older messages")
             
-            logger.info(f"[{self.session_id[:8]}] Archiving {messages_to_archive} messages (keeping {messages_to_keep} in active memory)")
+            # Save current state FIRST - before archiving
+            try:
+                self.save()
+                logger.debug(f"[{self.session_id[:8]}] Saved current state before archiving")
+            except Exception as save_err:
+                logger.error(f"[{self.session_id[:8]}] Failed to save before archiving: {save_err}")
+                # Don't continue with archiving if we can't save
+                raise
             
-            for _ in range(messages_to_archive):
-                if self.chat.messages:
-                    archived_msg = self.chat.messages[0]  # Get first message
-                    self._archived_messages.append(archived_msg.to_full_dict())
-                    self.chat.messages.pop(0)  # Remove from active memory
-                    self.stats["messages_archived"] += 1
+            # Archive old messages (keep only recent N in active memory)
+            messages_to_keep = self.config.kv_cache_size
+            total_messages = len(self.chat.messages)
             
-            logger.info(f"[{self.session_id[:8]}] Archived {messages_to_archive} messages. Total archived: {len(self._archived_messages)}")
-            
-            # Update chat stats after archiving
-            self.chat.stats["total_messages"] = len(self.chat.messages)
+            if total_messages > messages_to_keep:
+                # Archive older messages
+                messages_to_archive = total_messages - messages_to_keep
+                
+                logger.info(f"[{self.session_id[:8]}] Archiving {messages_to_archive} messages (keeping {messages_to_keep} in active memory)")
+                
+                # Track messages we're about to remove in case we need to rollback
+                removed_messages = []
+                
+                try:
+                    for _ in range(messages_to_archive):
+                        if self.chat.messages:
+                            archived_msg = self.chat.messages[0]  # Get first message
+                            removed_messages.append(archived_msg)  # Track for potential rollback
+                            self._archived_messages.append(archived_msg.to_full_dict())
+                            self.chat.messages.pop(0)  # Remove from active memory
+                            self.stats["messages_archived"] += 1
+                    
+                    logger.info(f"[{self.session_id[:8]}] Archived {messages_to_archive} messages. Total archived: {len(self._archived_messages)}")
+                
+                except Exception as archive_err:
+                    logger.error(f"[{self.session_id[:8]}] Error during archiving: {archive_err}")
+                    # Attempt rollback: re-add removed messages
+                    for msg in reversed(removed_messages):
+                        try:
+                            self.chat.messages.insert(0, msg)
+                        except:
+                            pass
+                    raise Exception(f"Archiving failed and rolled back: {archive_err}") from archive_err
+                
+                # Update chat stats after successful archiving
+                self.chat.stats["total_messages"] = len(self.chat.messages)
         
         # Update KV cache
         self._update_kv_cache()

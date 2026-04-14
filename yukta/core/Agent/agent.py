@@ -694,76 +694,116 @@ class Agent:
                         "tool_calls": response.tool_calls
                     })
                 
-                # Execute each tool call
-                for tool_call in response.tool_calls:
-                    try:
-                        tool_name = tool_call.get("function", {}).get("name")
-                        tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
-                        
-                        if not tool_name:
-                            if self.config.verbose:
-                                print(f"    ⚠️ Tool call missing name, skipping")
-                            continue
-                        
-                        if self.config.verbose:
-                            print(f"  • Calling tool: {tool_name}")
-                        
-                        # Parse arguments
+                # Execute each tool call with outer exception guard
+                tool_execution_errors: List[Dict[str, Any]] = []
+                try:
+                    for tool_call in response.tool_calls:
                         try:
-                            # Check if arguments are already a dict
-                            if isinstance(tool_args_str, dict):
-                                tool_args = tool_args_str
-                            else:
-                                tool_args = parse_tool_call_arguments(tool_args_str)
-                        except Exception as e:
-                            tool_args = {}
+                            tool_name = tool_call.get("function", {}).get("name")
+                            tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
+                            
+                            if not tool_name:
+                                if self.config.verbose:
+                                    print(f"    ⚠️ Tool call missing name, skipping")
+                                continue
+                            
                             if self.config.verbose:
-                                print(f"    ⚠️ Error parsing arguments: {e}")
+                                print(f"  • Calling tool: {tool_name}")
+                            
+                            # Parse arguments
+                            try:
+                                # Check if arguments are already a dict
+                                if isinstance(tool_args_str, dict):
+                                    tool_args = tool_args_str
+                                else:
+                                    tool_args = parse_tool_call_arguments(tool_args_str)
+                            except Exception as e:
+                                tool_args = {}
+                                if self.config.verbose:
+                                    print(f"    ⚠️ Error parsing arguments: {e}")
+                            
+                            # Execute tool
+                            tool_result = self.execute_tool(tool_name, tool_args)
+                            
+                            if self.config.verbose:
+                                if tool_result.get("success"):
+                                    print(f"    ✓ Tool executed successfully")
+                                else:
+                                    print(f"    ✗ Tool execution failed: {tool_result.get('error')}")
+                            
+                            # Add tool result to messages
+                            tool_result_content = self._format_tool_result(tool_result)
+                            
+                            # Try to add tool message with exception handling
+                            message_added = False
+                            try:
+                                if self.use_memory_cache:
+                                    self.memory.add_tool_message(
+                                        content=tool_result_content,
+                                        tool_call_id=tool_call.get("id", ""),
+                                        metadata={"name": tool_name} 
+                                    )
+                                    message_added = True
+                                elif self.chat is not None:
+                                    self.chat.add_tool_message(
+                                        content=tool_result_content,
+                                        tool_call_id=tool_call.get("id", ""),
+                                        metadata={"name": tool_name}  
+                                    )
+                                    message_added = True
+                                    self._auto_save_chat_if_enabled()  # Auto-save after tool message
+                                else:
+                                    tool_message = {
+                                        "role": "tool",
+                                        "tool_call_id": tool_call.get("id", ""),
+                                        "name": tool_name,
+                                        "content": tool_result_content
+                                    }
+                                    self.messages.append(tool_message)
+                                    message_added = True
+                            
+                            except Exception as msg_err:
+                                logger.error(f"[AGENT] Failed to add tool message for '{tool_name}': {msg_err}")
+                                if self.config.verbose:
+                                    print(f"    ✗ ERROR: Tool message not persisted: {msg_err}")
+                                # Even if message wasn't added to chat, still track the tool call
+                                # so the caller knows what was attempted
+                            
+                            # Track tool call (always, even if message addition failed)
+                            tool_calls_made.append({
+                                "tool": tool_name,
+                                "arguments": tool_args,
+                                "result": tool_result,
+                                "message_persisted": message_added
+                            })
                         
-                        # Execute tool
-                        tool_result = self.execute_tool(tool_name, tool_args)
-                        
-                        if self.config.verbose:
-                            if tool_result.get("success"):
-                                print(f"    ✓ Tool executed successfully")
-                            else:
-                                print(f"    ✗ Tool execution failed: {tool_result.get('error')}")
-                        
-                        # Add tool result to messages
-                        tool_result_content = self._format_tool_result(tool_result)
-                        
-                        if self.use_memory_cache:
-                            self.memory.add_tool_message(
-                                content=tool_result_content,
-                                tool_call_id=tool_call.get("id", ""),
-                                metadata={"name": tool_name} 
-                            )
+                        except Exception as e:
+                            logger.error(f"[AGENT] Unexpected error processing tool call: {e}")
+                            if self.config.verbose:
+                                print(f"    ✗ Error processing tool call: {e}")
+                
+                # Outer exception handler for entire tool execution loop
+                except Exception as loop_err:
+                    logger.error(f"[AGENT] Critical error in tool execution loop: {loop_err}")
+                    # Attempt emergency save of chat state
+                    try:
+                        if self.use_memory_cache and self.memory:
+                            self.memory.save()
                         elif self.chat is not None:
-                            self.chat.add_tool_message(
-                                content=tool_result_content,
-                                tool_call_id=tool_call.get("id", ""),
-                                metadata={"name": tool_name}  
-                            )
-                            self._auto_save_chat_if_enabled()  # Auto-save after tool message
-                        else:
-                            tool_message = {
-                                "role": "tool",
-                                "tool_call_id": tool_call.get("id", ""),
-                                "name": tool_name,
-                                "content": tool_result_content
-                            }
-                            self.messages.append(tool_message)
-                        
-                        # Track tool call
-                        tool_calls_made.append({
-                            "tool": tool_name,
-                            "arguments": tool_args,
-                            "result": tool_result
-                        })
+                            self._auto_save_chat_if_enabled()
+                        logger.info("[AGENT] Emergency chat save completed after tool loop error")
+                    except Exception as save_err:
+                        logger.error(f"[AGENT] Failed to save chat after tool error: {save_err}")
                     
-                    except Exception as e:
-                        if self.config.verbose:
-                            print(f"    ✗ Error processing tool call: {e}")
+                    # Record the error in response
+                    tool_execution_errors.append({
+                        "error": str(loop_err),
+                        "type": type(loop_err).__name__,
+                        "stage": "tool_execution_loop"
+                    })
+                    if self.config.verbose:
+                        print(f"    ✗ CRITICAL ERROR in tool execution: {loop_err}")
+
                 
                 # Continue loop to get next response from model
                 continue
@@ -813,12 +853,17 @@ class Agent:
         cache_info = self.get_cache_info() if self.use_memory_cache else None
         
         result = {
-            "success": True,
+            "success": True if not tool_execution_errors else False,
             "response": final_response,
             "iterations": iterations,
             "tool_calls": tool_calls_made,
             "tokens_used": self.stats["total_tokens"]
         }
+        
+        # Include execution errors if any occurred
+        if tool_execution_errors:
+            result["execution_errors"] = tool_execution_errors
+            logger.warning(f"[{self.agent_id[:8]}] Agent completed with {len(tool_execution_errors)} execution error(s)")
         
         # Add cache info if available
         if cache_info:

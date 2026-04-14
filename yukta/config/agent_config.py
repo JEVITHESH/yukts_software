@@ -41,6 +41,9 @@ class AgentConfig:
         enable_memory_logging: bool = True,
         memory_log_file: Optional[str] = None,
         storage_backend: Optional[BaseStorageBackend] = None,
+        enable_parallel_tools: bool = False,
+        parallel_tool_workers: int = 3,
+        enable_serialize_audit: bool = False,
         **additional_settings
     ):
         self.temperature = temperature
@@ -58,6 +61,11 @@ class AgentConfig:
         self.memory_log_file = memory_log_file
         self.additional_settings = additional_settings
         self.storage_backend = storage_backend or JSONFileStorage(self.chat_save_dir or "")
+        
+        # Parallel tool execution settings
+        self.enable_parallel_tools = enable_parallel_tools
+        self.parallel_tool_workers = parallel_tool_workers
+        self.enable_serialize_audit = enable_serialize_audit
         
         # Configure logging based on settings
         if self.enable_logging:
@@ -103,6 +111,9 @@ class AgentConfig:
             "auto_save_chat_history": self.auto_save_chat_history,
             "chat_history_dir": self.chat_history_dir,
             "log_file": self.log_file,
+            "enable_parallel_tools": self.enable_parallel_tools,
+            "parallel_tool_workers": self.parallel_tool_workers,
+            "enable_serialize_audit": self.enable_serialize_audit,
             **self.additional_settings
         }
 
