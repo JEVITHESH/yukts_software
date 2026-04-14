@@ -52,7 +52,7 @@ class SGLangClient(BaseLLMClient):
             
         try:
             # SGLang natively supports the standard OpenAI completions endpoint
-            response = self._make_request("/v1/chat/completions", payload, stream=stream)
+            response = self._make_request("/v1/chat/completions", payload, stream=kwargs.get("stream", False))
             data = response.json()
             
             # Validate response data

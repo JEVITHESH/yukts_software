@@ -41,7 +41,7 @@ class OllamaClient(BaseLLMClient):
         Args:
             messages: List of message dictionaries with 'role' and 'content'
             tools: Optional tools for function calling
-            stream: Whether to stream response
+            **kwargs: Additional arguments for the API call
             
         Returns:
             LLMResponse object
@@ -60,7 +60,7 @@ class OllamaClient(BaseLLMClient):
             payload["tools"] = tools
         
         try:
-            response = self._make_request("/api/chat", payload, stream=stream)
+            response = self._make_request("/api/chat", payload, stream=kwargs.get("stream", False))
             data = response.json()
             
             # Validate response data

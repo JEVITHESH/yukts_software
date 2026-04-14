@@ -36,7 +36,6 @@ class LMStudioClient(BaseLLMClient):
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        stream: bool = False,
         **kwargs
     ) -> LLMResponse:
         """
@@ -58,7 +57,7 @@ class LMStudioClient(BaseLLMClient):
             
         try:
             # LM Studio uses the standard OpenAI chat completions endpoint
-            response = self._make_request("/v1/chat/completions", payload, stream=stream)
+            response = self._make_request("/v1/chat/completions", payload, stream=kwargs.get("stream", False))
             data = response.json()
             
             # Validate response data

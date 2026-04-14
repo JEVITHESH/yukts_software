@@ -40,7 +40,7 @@ class RemoteEndpointClient(BaseLLMClient):
         Args:
             messages: List of message dictionaries
             tools: Optional tools for function calling
-            stream: Whether to stream response
+            **kwargs: Additional arguments for the API call
             
         Returns:
             LLMResponse object
@@ -76,7 +76,7 @@ class RemoteEndpointClient(BaseLLMClient):
         try:
             # Determine endpoint
             endpoint = self.config.get("endpoint", "/v1/chat/completions")
-            response = self._make_request(endpoint, payload, stream=stream)
+            response = self._make_request(endpoint, payload, stream=kwargs.get("stream", False))
             data = response.json()
             
             # Validate response data

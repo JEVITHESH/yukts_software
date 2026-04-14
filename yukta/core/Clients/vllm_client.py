@@ -113,7 +113,7 @@ class VLLMClient(BaseLLMClient):
         Args:
             messages: List of message dictionaries
             tools: Optional tools for function calling
-            stream: Whether to stream response
+            **kwargs: Additional arguments for the API call
             
         Returns:
             LLMResponse object
@@ -138,7 +138,7 @@ class VLLMClient(BaseLLMClient):
         logger.debug(f"Number of messages: {len(messages)}, Tools: {len(tools) if tools else 0}")
         
         try:
-            response = self._make_request("/v1/chat/completions", payload, stream=stream)
+            response = self._make_request("/v1/chat/completions", payload, stream=kwargs.get("stream", False))
             data = response.json()
             
             # Debug: Log the response

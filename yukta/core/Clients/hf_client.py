@@ -55,7 +55,7 @@ class HuggingFaceClient(BaseLLMClient):
             
         try:
             # Append the standard OpenAI compatible route for TGI
-            response = self._make_request("/v1/chat/completions", payload, stream=stream)
+            response = self._make_request("/v1/chat/completions", payload, stream=kwargs.get("stream", False))
             data = response.json()
             
             # Validate response data
