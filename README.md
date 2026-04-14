@@ -1,4 +1,4 @@
-﻿# Yukta - Modular AI Agent Framework
+# Yukta - Modular AI Agent Framework
 
 > A comprehensive, modular AI agent system with **multi-LLM support**, **intelligent memory management**, **real-time chat persistence**, **tool integration**, and **automatic chat history saving**.
 
@@ -12,9 +12,10 @@
 - [Key Features](#-key-features)
 - [Supported LLM Clients](#-supported-llm-clients)
 - [Installation](#-installation)
-  - [Option 1: Pip Installation](#option-1-pip-installation)
-  - [Option 2: Direct Git Installation](#option-2-direct-git-installation)
-  - [Option 3: Git Clone & Local Install](#option-3-git-clone--local-install)
+  - [Quick Install](#quick-install-single-command)
+  - [Installation Methods](#installation-methods)
+  - [Verify Installation](#verify-installation)
+  - [What Gets Installed](#-what-gets-installed)
 - [Quick Start](#-quick-start)
 - [Usage Examples](#-usage-examples)
   - [1. Basic Agent Creation](#1-basic-agent-creation)
@@ -85,6 +86,12 @@ Whether you're building a financial advisor, customer service bot, data analyst,
 - **Performance Monitoring**: Track agent execution and token usage
 - **Verbose Mode**: Detailed output for debugging
 
+### 📡 Observability & Tracing
+- **OpenTelemetry Integration**: Full distributed tracing support
+- **Phoenix APM Monitoring**: Real-time performance monitoring
+- **Execution Metrics**: Track tool calls, LLM performance, and timings
+- **Production-Ready Instrumentation**: Built-in tracing infrastructure
+
 ---
 
 ## 🌐 Supported LLM Clients
@@ -103,17 +110,32 @@ Whether you're building a financial advisor, customer service bot, data analyst,
 
 ## 📦 Installation
 
-### Option 1: Pip Installation
+### Quick Install (Single Command)
 
-**Latest stable release (when published):**
+All necessary packages are **installed by default** - no optional extras needed!
 
 ```bash
+# Navigate to project directory
+cd yukta
+
+# Install (choose one method)
+pip install .                    # Standard install
+pip install -e .                # Development mode (editable)
+pip install -r requirements.txt  # From requirements file
+```
+
+**That's it!** All 17 essential packages are installed automatically.
+
+### Installation Methods
+
+#### Option 1: Pip Installation (Latest Release)
+
+```bash
+# Install latest stable release (when published)
 pip install yukta
 ```
 
-### Option 2: Direct Git Installation
-
-**Install directly from GitHub without cloning:**
+#### Option 2: Direct Git Installation
 
 ```bash
 # Install latest from main branch
@@ -121,14 +143,9 @@ pip install git+https://github.com/VCoder4646/yukta.git
 
 # Install from specific branch
 pip install git+https://github.com/VCoder4646/yukta.git@<branch-name>
-
-# Install from specific commit
-pip install git+https://github.com/VCoder4646/yukta.git@<commit-hash>
 ```
 
-### Option 3: Git Clone & Local Install
-
-**For development or latest features:**
+#### Option 3: Git Clone & Local Install
 
 ```bash
 # Clone the repository
@@ -137,21 +154,78 @@ cd yukta
 
 # Install in development mode (editable)
 pip install -e .
+
+# Optional: Install with development tools for contributing
+pip install -e ".[dev]"
 ```
 
-**Install from specific branch:**
+### ✅ Verify Installation
+
+Run the verification script to ensure all packages are installed:
 
 ```bash
-git clone -b <branch-name> https://github.com/VCoder4646/yukta.git
-cd yukta
-pip install -e .
+# From the yukta directory
+python verify_unified_installation.py
 ```
 
-**Verify installation:**
-
-```bash
-python -c "from yukta import Agent, AgentBuilder; print('✅ Yukta installed successfully!')"
+**Expected output:**
 ```
+======================================================================
+YUKTA UNIFIED INSTALLATION VERIFICATION
+======================================================================
+
+[Core Packages]
+  ✓ requests                       (requests)
+  ✓ httpx                          (httpx)
+  ✓ python-dotenv                  (dotenv)
+
+[LLM Provider Support]
+  ✓ openai                         (openai)
+  ✓ anthropic                      (anthropic)
+  
+[... more packages ...]
+
+======================================================================
+Results: 17/17 packages installed
+======================================================================
+
+✅ ALL PACKAGES INSTALLED SUCCESSFULLY!
+```
+
+### 📦 What Gets Installed
+
+**17 Essential Packages** are installed by default:
+
+#### Core Utilities (3)
+- `requests` - HTTP requests
+- `httpx` - Async HTTP client
+- `python-dotenv` - Environment variables
+
+#### LLM Provider Support (2)
+- `openai` - OpenAI API
+- `anthropic` - Anthropic Claude
+
+#### Model Context Protocol (1)
+- `mcp` - Remote tools support (includes SSE)
+
+#### Data & Databases (5)
+- `pandas` - DataFrames and analysis
+- `numpy` - Numerical computing
+- `sqlalchemy` - SQL ORM
+- `psycopg2-binary` - PostgreSQL database driver
+- `pymilvus` - Milvus vector database
+
+#### Async & HTTP (1)
+- `aiohttp` - Async HTTP operations
+
+#### Observability & Tracing (4)
+- `opentelemetry-api` - Tracing API
+- `opentelemetry-sdk` - Tracing SDK
+- `openinference-semantic-conventions` - Standard conventions
+- `arize-phoenix` - APM monitoring
+
+#### Development Tools (Optional)
+- `pytest`, `pytest-cov`, `black`, `flake8`, `mypy` - Install with `pip install -e ".[dev]"`
 
 ---
 
@@ -161,7 +235,7 @@ python -c "from yukta import Agent, AgentBuilder; print('✅ Yukta installed suc
 
 ```python
 from yukta import create_agent
-from yukta.core.Clients import OllamaClient
+from yukta.core.Clients.ollama_client import OllamaClient
 
 # Create agent with Ollama
 agent = create_agent(
@@ -185,7 +259,7 @@ Create a simple agent with system prompt:
 
 ```python
 from yukta import create_agent, SystemPrompt
-from yukta.core.Clients import OllamaClient
+from yukta.core.Clients.ollama_client import OllamaClient
 
 # Define system prompt
 system_prompt = SystemPrompt(
@@ -220,7 +294,7 @@ Give your agent custom abilities:
 ```python
 from yukta import create_agent
 from yukta.tools import Tool, ToolParameter, ToolProcessor, ToolType
-from yukta.core.Clients import OllamaClient
+from yukta.core.Clients.ollama_client import OllamaClient
 from yukta.config import AgentConfig
 import logging
 
@@ -254,25 +328,21 @@ tools_processor.add_tool(
 
 # Create agent with tools
 config = AgentConfig(
-    auto_save_chat_history=True,
-    chat_history_dir="./chats",
     log_level=logging.INFO,
+    enable_logging=True,
     verbose=True
 )
 
 agent = create_agent(
     name="StockAnalyzer",
-    system_prompt="You are a stock analysis expert. Use the get_stock_price tool to get prices.",
+    system_prompt="You are a stock price analyzer. Use the get_stock_price tool to check prices.",
+    llm_client=OllamaClient(model_name="mistral"),
     tools_processor=tools_processor,
-    llm_client=OllamaClient(model_name="neural-chat"),
     config=config
 )
 
-# Agent will automatically use tools
-response = agent.invoke(
-    "What are the current prices of AAPL and GOOGL?",
-    use_llm=True
-)
+# Use agent with tools
+response = agent.invoke("What is the price of Apple stock?", use_llm=True, max_iterations=5)
 print(response)
 ```
 
@@ -280,396 +350,191 @@ print(response)
 
 ### 3. Multi-turn Conversations
 
-Have extended conversations with context:
+Maintain conversation context across multiple turns:
 
 ```python
 from yukta import create_agent
-from yukta.core.Clients import OllamaClient
+from yukta.core.Clients.ollama_client import OllamaClient
 
 agent = create_agent(
     name="ChatBot",
-    system_prompt="You are a friendly assistant. Remember context from previous messages.",
-    llm_client=OllamaClient(model_name="neural-chat")
+    system_prompt="You are a helpful assistant.",
+    llm_client=OllamaClient(model_name="qwen:4b")
 )
 
-# Multi-turn conversation
-questions = [
-    "My name is Alice and I work in finance.",
-    "What industry am I in?",  # Agent remembers context
-    "What role might suit someone like me?",  # Continues the conversation
-]
+# Multiple turns - context is maintained
+response1 = agent.invoke("My name is Alice", use_llm=True)
+print(f"Agent: {response1}")
 
-for question in questions:
-    print(f"\nUser: {question}")
-    response = agent.invoke(question, use_llm=True)
-    print(f"Agent: {response}")
+response2 = agent.invoke("What's my name?", use_llm=True)
+print(f"Agent: {response2}")  # Agent remembers "Alice"
+
+response3 = agent.invoke("Tell me a joke", use_llm=True)
+print(f"Agent: {response3}")
 ```
 
 ---
 
 ### 4. Chat Persistence
 
-Automatically save and load conversations:
+Auto-save chat history with meaningful filenames:
 
 ```python
 from yukta import create_agent, AgentConfig
-from yukta.core.Clients import OllamaClient
+from yukta.core.Clients.ollama_client import OllamaClient
 
 config = AgentConfig(
-    auto_save_chat_history=True,      # Enable auto-save
-    chat_history_dir="./chats",       # Save directory
+    auto_save_chat_history=True,     # Enable auto-save
+    chat_history_dir="./chats",      # Save to ./chats
     verbose=True
 )
 
 agent = create_agent(
-    name="ResearchAssistant",
-    system_prompt="You are a research assistant.",
-    llm_client=OllamaClient(model_name="qwen:7b"),
+    name="PersistentBot",
+    system_prompt="You are a helpful assistant",
+    llm_client=OllamaClient(model_name="qwen:4b"),
     config=config
 )
 
-# This conversation will be automatically saved
-response1 = agent.invoke("What is quantum computing?", use_llm=True)
-response2 = agent.invoke("How does it differ from classical computing?", use_llm=True)
+# Chats are automatically saved to ./chats/PersistentBot/
+# with meaningful filenames like: "how_to_learn_python_20260413_101234.json"
+response = agent.invoke("How do I learn Python?", use_llm=True)
+print(response)
 
-# Chat is automatically saved to: ./chats/ResearchAssistant/[generated_filename].json
-print(f"Chat saved automatically!")
-print(f"Chat location: ./chats/{agent.agent_name}/")
-
-# Get chat statistics
-stats = agent.get_chat_stats()
-print(f"\nChat Statistics:")
-print(f"  Total Messages: {stats.get('total_messages', 0)}")
-print(f"  User Messages: {stats.get('user_messages', 0)}")
-print(f"  Agent Messages: {stats.get('agent_messages', 0)}")
-print(f"  Total Tokens: {stats.get('total_tokens', 0)}")
+# Chat files saved to:
+# ./chats/PersistentBot/how_to_learn_python_20260413_101234.json
 ```
 
 ---
 
 ### 5. Working with Memory
 
-Manage agent knowledge and context:
+Configure memory for intelligent context management:
 
 ```python
-from yukta import create_agent, create_memory, AgentConfig
-from yukta.core.Clients import OllamaClient
+from yukta import create_agent, create_memory
+from yukta.core.Clients.ollama_client import OllamaClient
 
-# Create memory with capacity
+# Create memory with 4096 token limit
 memory = create_memory(
-    system_prompt="You are a helpful assistant.",
-    max_tokens=2048,  # Maximum context window
+    system_prompt="You are a helpful assistant specialized in Python.",
+    max_tokens=4096,
     storage_type="json"
 )
 
-config = AgentConfig(
-    auto_save_chat_history=True,
-    verbose=False
-)
-
-# Create agent with memory
 agent = create_agent(
-    name="MemoryAgent",
-    system_prompt="Remember important details from past conversations.",
-    llm_client=OllamaClient(model_name="neural-chat"),
-    config=config
+    name="PythonExpert",
+    system_prompt="You are a Python expert",
+    llm_client=OllamaClient(model_name="mistral"),
+    memory=memory
 )
-agent.set_memory(memory)
 
-# Have conversations - memory tracks everything
-agent.invoke("My favorite color is blue.", use_llm=True)
-agent.invoke("What's my favorite color?", use_llm=True)
+# Memory automatically manages context
+response = agent.invoke("Explain decorators in Python", use_llm=True)
+print(response)
 
-# Save memory for later
-memory.save("./memory_state.json")
-
-# Load memory later
-from yukta import load_memory
-loaded_memory = load_memory("./memory_state.json")
+# Memory can be saved and loaded
+memory.save("python_memory.json")
 ```
 
 ---
 
 ### 6. Multiple LLM Clients
 
-Easy switching between different LLM providers:
+Switch between different LLM backends:
 
 ```python
-from yukta import create_agent, AgentConfig
-from yukta.core.Clients import (
-    OllamaClient, VLLMClient, LMStudioClient, 
-    RemoteEndpointClient
-)
+from yukta import create_agent
+from yukta.core.Clients.llmclientfactory import LLMClientFactory, ModelType
 
-config = AgentConfig(verbose=True)
+# Create agents with different backends
 
-# Option 1: Ollama (lightweight)
+# Ollama Agent
 ollama_agent = create_agent(
     name="OllamaBot",
-    system_prompt="You are helpful.",
-    llm_client=OllamaClient(
-        base_url="http://localhost:11434",
-        model_name="mistral"
-    ),
-    config=config
+    system_prompt="You are helpful",
+    llm_client=LLMClientFactory.create_client(ModelType.OLLAMA, model_name="qwen:4b")
 )
 
-# Option 2: vLLM (high performance)
+# vLLM Agent (OpenAI-compatible)
 vllm_agent = create_agent(
     name="vLLMBot",
-    system_prompt="You are helpful.",
-    llm_client=VLLMClient(
-        base_url="http://localhost:8000",
-        model_name="meta-llama/Llama-2-7b-hf"
-    ),
-    config=config
+    system_prompt="You are helpful",
+    llm_client=LLMClientFactory.create_client(
+        ModelType.VLLM,
+        model_name="meta-llama/Llama-2-7b",
+        api_base="http://localhost:8000"
+    )
 )
 
-# Option 3: LM Studio (GUI-based)
-lmstudio_agent = create_agent(
-    name="LMStudioBot",
-    system_prompt="You are helpful.",
-    llm_client=LMStudioClient(
-        base_url="http://localhost:1234",
-        model_name="any-model"  # Auto-detects from LM Studio
-    ),
-    config=config
+# OpenAI Agent
+openai_agent = create_agent(
+    name="GPTBot",
+    system_prompt="You are helpful",
+    llm_client=LLMClientFactory.create_client(
+        ModelType.OPENAI,
+        model_name="gpt-4",
+        api_key="your_api_key_here"
+    )
 )
 
-# Option 4: Remote OpenAI-compatible endpoint
-remote_agent = create_agent(
-    name="RemoteBot",
-    system_prompt="You are helpful.",
-    llm_client=RemoteEndpointClient(
-        base_url="https://api.example.com/v1",
-        api_key="your-api-key",
-        model_name="gpt-4"
-    ),
-    config=config
-)
-
-# All agents work the same way
-for agent in [ollama_agent, vllm_agent, lmstudio_agent]:
-    response = agent.invoke("Hello!", use_llm=True)
-    print(f"{agent.agent_name}: {response}\n")
+# All work the same way
+response1 = ollama_agent.invoke("Hello", use_llm=True)
+response2 = vllm_agent.invoke("Hello", use_llm=True)
+response3 = openai_agent.invoke("Hello", use_llm=True)
 ```
 
 ---
 
 ### 7. Remote Tools (MCP)
 
-Connect to remote Model Context Protocol endpoints:
+Connect to remote Model Context Protocol servers:
 
 ```python
 from yukta import create_agent
-from yukta.tools import create_remote_mcp_tool, ToolProcessor
-from yukta.core.Clients import OllamaClient
-from yukta.config import AgentConfig
+from yukta.tools import ToolProcessor
+from yukta.core.Clients.ollama_client import OllamaClient
 
-# Create tool processor
+# Create tool processor with remote tools
 tools_processor = ToolProcessor()
 
-# Add remote MCP tool
-weather_tool = create_remote_mcp_tool(
-    name="get_weather",
-    description="Get weather for a city",
-    endpoint="http://localhost:8000/tools/get_weather",
-    parameters=[
-        {
-            "name": "city",
-            "type": "string",
-            "required": True,
-            "description": "City name"
-        }
-    ]
-)
-tools_processor.add_tool(weather_tool)
-
-# Add another remote tool
-convert_tool = create_remote_mcp_tool(
-    name="convert_currency",
-    description="Convert between currencies",
-    endpoint="http://localhost:8000/tools/convert_currency",
-    parameters=[
-        {"name": "amount", "type": "number", "required": True},
-        {"name": "from_currency", "type": "string", "required": True},
-        {"name": "to_currency", "type": "string", "required": True},
-        {"name": "rate", "type": "number", "required": True}
-    ]
-)
-tools_processor.add_tool(convert_tool)
-
-# Create agent with remote tools
-config = AgentConfig(
-    auto_save_chat_history=True,
-    verbose=True
-)
+# Load remote MCP tools (if MCP server is running)
+# The MCP tools are now available with unified installation!
 
 agent = create_agent(
-    name="TravelAssistant",
-    system_prompt="Use tools to help with travel planning and currency conversion.",
-    tools_processor=tools_processor,
-    llm_client=OllamaClient(model_name="neural-chat"),
-    config=config
+    name="RemoteToolBot",
+    system_prompt="You are an assistant with remote tools",
+    llm_client=OllamaClient(model_name="mistral"),
+    tools_processor=tools_processor
 )
 
-# Agent will call remote tools as needed
-response = agent.invoke(
-    "What's the weather in London? Also convert 100 USD to GBP at rate 0.79",
-    use_llm=True
-)
+response = agent.invoke("Use available tools to help me", use_llm=True, max_iterations=5)
 print(response)
-```
-
----
-
-### Complete Example: Financial Analysis Agent
-
-A complete, production-ready example:
-
-```python
-from yukta import create_agent, AgentConfig
-from yukta.tools import Tool, ToolParameter, ToolProcessor, ToolType
-from yukta.core.Clients import OllamaClient
-from yukta.config import SystemPrompt
-import logging
-
-# Setup System Prompt
-system_prompt = SystemPrompt(
-    "FinanceAnalyst",
-    """You are an expert financial analyst. Your responsibilities:
-    - Analyze stock data and trends
-    - Provide investment recommendations
-    - Explain financial concepts clearly
-    - Use tools to get current stock information
-    
-    When asked about stocks, always use the available tools to get prices and data.
-    Be cautious with recommendations and include risk disclaimers."""
-)
-
-# Setup Tools
-tools_processor = ToolProcessor()
-
-# Mock data for example
-STOCK_DATA = {
-    "AAPL": {"price": 150.25, "pe": 28.5, "market_cap": "2.4T"},
-    "GOOGL": {"price": 140.80, "pe": 25.2, "market_cap": "1.8T"},
-    "MSFT": {"price": 380.50, "pe": 32.1, "market_cap": "2.8T"},
-}
-
-def analyze_stock(symbol: str) -> str:
-    """Analyze a stock and return key metrics"""
-    data = STOCK_DATA.get(symbol.upper())
-    if data:
-        return f"{symbol}: Price=${data['price']}, P/E={data['pe']}, Market Cap={data['market_cap']}"
-    return f"Stock {symbol} not found in database"
-
-# Add tools
-tools_processor.add_tool(
-    Tool(
-        name="analyze_stock",
-        description="Get analysis data for a stock",
-        parameters=[
-            ToolParameter(
-                name="symbol",
-                type="string",
-                description="Stock ticker symbol",
-                required=True
-            )
-        ],
-        tool_type=ToolType.CUSTOM,
-        function=analyze_stock
-    )
-)
-
-# Setup Configuration
-config = AgentConfig(
-    auto_save_chat_history=True,
-    chat_history_dir="./financial_chats",
-    log_level=logging.INFO,
-    enable_logging=True,
-    verbose=True
-)
-
-# Create Agent
-agent = create_agent(
-    name="FinanceAnalyst",
-    system_prompt=system_prompt,
-    tools_processor=tools_processor,
-    llm_client=OllamaClient(model_name="neural-chat"),
-    config=config
-)
-
-# Run Analysis
-queries = [
-    "What's the current status of Apple stock?",
-    "Compare AAPL and MSFT for investment potential",
-    "Which tech stock looks best right now?"
-]
-
-print("="*70)
-print("FINANCIAL ANALYSIS AGENT")
-print("="*70)
-
-for query in queries:
-    print(f"\n📊 Query: {query}\n")
-    response = agent.invoke(
-        query,
-        use_llm=True
-    )
-    print(f"💡 Analysis:\n{response}\n")
-    print("-"*70)
-
-# Get statistics
-stats = agent.get_chat_stats()
-print(f"\n📈 Session Statistics:")
-print(f"   Total messages: {stats.get('total_messages', 0)}")
-print(f"   Tool calls: {stats.get('tool_calls', 0)}")
-print(f"   Total tokens: {stats.get('total_tokens', 0)}")
 ```
 
 ---
 
 ## 🏗️ Architecture
 
-### System Overview
-
 ```
-┌─────────────────────────────────────────────────┐
-│           User Application                      │
-└─────────────────┬───────────────────────────────┘
-                  │
-        ┌─────────▼──────────┐
-        │   Agent (Core)     │
-        │  - Orchestration   │
-        │  - Tool Calling    │
-        │  - Memory Mgmt     │
-        └─────────┬──────────┘
-                  │
-    ┌─────────────┼──────────────┐
-    │             │              │
-┌───▼──┐    ┌────▼──────┐  ┌───▼────┐
-│Tools │    │LLM Client │  │ Memory  │
-│      │    │           │  │         │
-│Custom│    │ Ollama    │  │ Storage │
-│Remote│    │ vLLM      │  │ Indexing│
-└──────┘    │ LM Studio │  │ Search  │
-            │ OpenAI    │  └─────────┘
-            │ Others...  │
-            └────────────┘
+Yukta Agent System
+├── Core
+│   ├── Agent          # Main agent class
+│   ├── Chat           # Chat message management
+│   ├── Storage        # Persistence layer
+│   └── Clients        # LLM client implementations
+├── Tools
+│   ├── Tool           # Tool definition
+│   ├── ToolProcessor  # Tool execution
+│   └── Parameters     # Parameter schemas
+├── Config
+│   ├── AgentConfig    # Configuration
+│   ├── SystemPrompt   # System messages
+│   └── Memory         # Context management
+└── Instrumentation
+    ├── Tracing        # Distributed tracing
+    └── Decorators     # Observability hooks
 ```
-
-### Module Structure
-
-| Module | Purpose |
-|--------|---------|
-| `core/Agent` | Main agent logic and orchestration |
-| `core/Chat` | Chat management and persistence |
-| `core/Memory` | Context and memory management |
-| `core/Clients` | LLM client implementations |
-| `tools/` | Tool definition and processing |
-| `config/` | Configuration and prompts |
-| `instrumentation/` | Logging and tracing |
 
 ---
 
@@ -713,10 +578,14 @@ LM_STUDIO_API_BASE=http://localhost:1234
 # API Keys
 OPENAI_API_KEY=your_key_here
 HUGGINGFACE_API_KEY=your_key_here
+ANTHROPIC_API_KEY=your_key_here
 
 # Memory
 MEMORY_STORAGE_DIR=./memory
 MAX_MEMORY_TOKENS=4096
+
+# Tracing (OpenTelemetry)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6831
 ```
 
 ---
@@ -737,7 +606,8 @@ agent = create_agent(
 )
 
 # Methods
-agent.invoke(input: str, use_llm: bool = True) -> str
+agent.invoke(input: str, use_llm: bool = True, max_iterations: int = 1) -> str
+agent.get_chat_history() -> List[Message]
 agent.get_chat_stats() -> dict
 agent.set_memory(memory: Memory) -> None
 agent.save_chat(filepath: str) -> None
@@ -759,20 +629,37 @@ processor = ToolProcessor()
 processor.add_tool(tool)
 processor.remove_tool(name: str)
 processor.execute_tool(name: str, **kwargs) -> Any
+processor.list_tools() -> List[str]
+```
+
+#### LLMClientFactory
+```python
+from yukta.core.Clients.llmclientfactory import LLMClientFactory, ModelType
+
+# Create clients for different backends
+client = LLMClientFactory.create_client(
+    ModelType.OLLAMA,           # or VLLM, LM_STUDIO, OPENAI, etc.
+    model_name="qwen:4b",
+    api_base="http://localhost:11434"
+)
 ```
 
 #### Memory
 ```python
+from yukta import create_memory
+
 memory = create_memory(
     system_prompt: str,
     max_tokens: int = 2048,
     storage_type: str = "json"
 )
 
+# Methods
 memory.add_message(role: str, content: str) -> None
 memory.get_context() -> str
 memory.search(query: str) -> List[str]
 memory.save(filepath: str) -> None
+memory.load(filepath: str) -> None
 ```
 
 ---
@@ -790,28 +677,45 @@ pytest tests/
 
 # Run with coverage
 pytest --cov=yukta tests/
+
+# Run specific test file
+pytest tests/test_agent.py -v
 ```
 
 ### Code Style
 
 ```bash
-# Format code
+# Format code with Black
 black yukta/
 
-# Lint
-flake8 yukta/
+# Lint with Flake8
+flake8 yukta/ --max-line-length=100
 
-# Type checking
-mypy yukta/
+# Type checking with mypy
+mypy yukta/ --ignore-missing-imports
 ```
 
 ### Contributing
 
 1. Fork the repository
 2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open Pull Request
+3. Make your changes and add tests
+4. Format code: `black yukta/`
+5. Run tests: `pytest tests/`
+6. Commit changes: `git commit -m 'Add amazing feature'`
+7. Push to branch: `git push origin feature/amazing-feature`
+8. Open Pull Request
+
+---
+
+## 📚 Documentation
+
+Comprehensive guides and documentation files:
+
+- **Installation**: [INSTALLATION_UNIFIED.md](INSTALLATION_UNIFIED.md) - Complete installation guide
+- **Tracing & Observability**: See instrumentation examples
+- **Tool Integration**: Check examples/ directory
+- **Examples**: More usage patterns in examples/
 
 ---
 
@@ -824,9 +728,9 @@ MIT License - see LICENSE file for details
 ## 🤝 Support & Community
 
 - **Documentation**: See docs/ directory and markdown files
-- **Examples**: Check examples/ for more usage patterns
-- **Issues**: Report bugs on GitHub
-- **Discussions**: Join community discussions
+- **Examples**: Check [examples/](examples/) for more usage patterns
+- **Issues**: Report bugs on [GitHub Issues](https://github.com/VCoder4646/yukta/issues)
+- **Discussions**: Join [GitHub Discussions](https://github.com/VCoder4646/yukta/discussions)
 
 ---
 
@@ -834,10 +738,10 @@ MIT License - see LICENSE file for details
 
 - [ ] Web UI for agent management
 - [ ] Advanced multi-agent interactions
-- [ ] Vector database integration
 - [ ] Fine-tuning helpers
 - [ ] Kubernetes deployment templates
 - [ ] Performance benchmarking suite
+- [ ] Extended LLM provider support
 
 ---
 
@@ -852,11 +756,15 @@ For updates and more projects, follow on GitHub: [@VCoder4646](https://github.co
 ## 📝 Changelog
 
 ### Version 2.1.0 (Current)
-- Real-time chat persistence with meaningful filenames
-- Agent-organized chat directory structure
-- Configuration-driven auto-save
+- ✅ **Unified Installation** - All 17 essential packages installed by default
+- ✅ **OpenTelemetry Integration** - Full distributed tracing support
+- ✅ **Phoenix APM** - Real-time performance monitoring
+- ✅ **Real-time Chat Persistence** - Meaningful filenames with auto-save
+- ✅ **Agent-organized Chat Structure** - Files organized by agent name
+- ✅ **Enhanced Tool Integration** - MCP support with SSE
+- ✅ **Database Support** - PostgreSQL + Milvus pre-installed
 - Improved memory management
-- Enhanced tool integration
+- Enhanced tool execution model
 
 ### Version 2.0.0
 - Multi-LLM client support
@@ -869,3 +777,7 @@ For updates and more projects, follow on GitHub: [@VCoder4646](https://github.co
 - Basic agent framework
 - System prompt support
 
+---
+
+**Last Updated**: April 14, 2024  
+**Status**: ✅ Production Ready
