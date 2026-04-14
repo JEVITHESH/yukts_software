@@ -28,7 +28,75 @@ class OllamaClient(BaseLLMClient):
         if not base_url or base_url.strip() == "":
             base_url = "http://localhost:11434"
         super().__init__(model_name, base_url, **kwargs)
-    
+    def _parse_parameters(self, param_str: str) -> Dict[str, Any]:
+        params = {}
+
+        for line in param_str.splitlines():
+            parts = line.strip().split()
+            if len(parts) == 2:
+                key, value = parts
+                try:
+                    if "." in value:
+                        value = float(value)
+                    else:
+                        value = int(value)
+                except ValueError:
+                    pass
+                params[key] = value
+
+        return params
+
+    def _fetch_model_data(self, model: str):
+        res = requests.post(
+            f"{self.BASE_URL}/api/show",
+            json={"name": model}
+        )
+        res.raise_for_status()
+
+        self._data = res.json()
+        self._params = self._parse_parameters(
+            self._data.get("parameters", "")
+        )
+
+    def get_context_window(self) -> Optional[int]:
+        # Priority 1: num_ctx
+        if "num_ctx" in self._params:
+            return self._params["num_ctx"]
+
+        # Priority 2: model_info fallback
+        model_info = self._data.get("model_info", {})
+        for k, v in model_info.items():
+            if "context_length" in k:
+                return v
+
+        return None
+
+    def get_max_context(self) -> Optional[int]:
+        model_info = self._data.get("model_info", {})
+        for k, v in model_info.items():
+            if "context_length" in k:
+                return v
+        return None
+
+    def get_model_info(self, model: str) -> Dict[str, Any]:
+        # fetch + store internally
+        self._fetch_model_data(model)
+
+        context_window = self.get_context_window()
+        max_context = self.get_max_context()
+
+        caps = self._data.get("capabilities", [])
+
+        return {
+            "model": model,
+            "context_window": context_window,      # ✅ uses self
+            "max_context_window": max_context,
+            "default_params": self._params,
+            "supports_stream": True,
+            "supports_tools": "tools" in caps,
+            "supports_reasoning": "thinking" in caps,
+            "provider": "ollama"
+        }
     def generate(
         self,
         messages: List[Dict[str, str]],

@@ -42,8 +42,9 @@ config = AgentConfig(
 )
 
 # Initialize Ollama LLM client
-llm1 = VLLMClient(model_name="minimax-m2.5",base_url="http://192.168.200.46:11458",optioms_override={"think":False})
-
+# llm1 = VLLMClient(model_name="minimax-m2.5",base_url="http://192.168.200.46:11458",optioms_override={"think":False})
+llm=OllamaClient(model_name="qwen3:4b")
+print(llm.get_model_info()) # Test connection and print model info
 # Create agent with Ollama client
 agent1 = create_agent(
     name="TestAgent1",
@@ -65,43 +66,43 @@ questions = [
     "Based on your analysis, should I invest in tech stocks?"
 ]
 
-# Run multi-turn conversation
-for i, question in enumerate(questions, 1):
-    print(f"\n--- Turn {i} ---")
-    print(f"User: {question}\n")
+# # Run multi-turn conversation
+# for i, question in enumerate(questions, 1):
+#     print(f"\n--- Turn {i} ---")
+#     print(f"User: {question}\n")
     
-    try:
-        # Invoke the agent with the question
-        # This will actually call the Ollama model using the llm_client
-        response = agent1.invoke(
-            input=question,
-            use_llm=True  # Use LLM for reasoning and response
-        )
+#     try:
+#         # Invoke the agent with the question
+#         # This will actually call the Ollama model using the llm_client
+#         response = agent1.invoke(
+#             input=question,
+#             use_llm=True  # Use LLM for reasoning and response
+#         )
         
-        print(f"Agent: {response}\n")
+#         print(f"Agent: {response}\n")
         
-    except Exception as e:
-        print(f"Error during agent invocation: {e}\n")
+#     except Exception as e:
+#         print(f"Error during agent invocation: {e}\n")
 
-# Display chat statistics
-print("\n" + "="*70)
-print("CHAT STATISTICS")
-print("="*70 + "\n")
+# # Display chat statistics
+# print("\n" + "="*70)
+# print("CHAT STATISTICS")
+# print("="*70 + "\n")
 
-chat_stats = agent1.get_chat_stats()
-if chat_stats:
-    print(f"Total Messages: {chat_stats['total_messages']}")
-    print(f"User Messages: {chat_stats['user_messages']}")
-    print(f"Agent Messages: {chat_stats['agent_messages']}")
-    print(f"Tool Calls: {chat_stats['tool_calls']}")
-    print(f"Total Tokens: {chat_stats['total_tokens']}")
-else:
-    print("No chat statistics available")
+# chat_stats = agent1.get_chat_stats()
+# if chat_stats:
+#     print(f"Total Messages: {chat_stats['total_messages']}")
+#     print(f"User Messages: {chat_stats['user_messages']}")
+#     print(f"Agent Messages: {chat_stats['agent_messages']}")
+#     print(f"Tool Calls: {chat_stats['tool_calls']}")
+#     print(f"Total Tokens: {chat_stats['total_tokens']}")
+# else:
+#     print("No chat statistics available")
 
-print("\n" + "="*70)
-print("CONVERSATION COMPLETE")
-print("="*70)
-print("\nNote: Chat history was automatically saved in real-time to:")
-print(f"  ./chats/{agent1.agent_name}/[generated_filename].json")
-print("\nThe chat file was updated after each message (user, agent, tool).")
+# print("\n" + "="*70)
+# print("CONVERSATION COMPLETE")
+# print("="*70)
+# print("\nNote: Chat history was automatically saved in real-time to:")
+# print(f"  ./chats/{agent1.agent_name}/[generated_filename].json")
+# print("\nThe chat file was updated after each message (user, agent, tool).")
 
