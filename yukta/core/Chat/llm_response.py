@@ -20,7 +20,9 @@ class LLMResponse:
         finish_reason: str = "stop",
         usage: Optional[Dict[str, int]] = None,
         raw_response: Optional[Dict[str, Any]] = None,
-        cached_tokens: int = 0
+        cached_tokens: int = 0,
+        incomplete: bool = False,
+        continuation_count: int = 0
     ):
         self.content = content
         self.tool_calls = tool_calls or []
@@ -28,6 +30,8 @@ class LLMResponse:
         self.usage = usage or {}
         self.raw_response = raw_response or {}
         self.cached_tokens = cached_tokens
+        self.incomplete = incomplete
+        self.continuation_count = continuation_count
     
     def has_tool_calls(self) -> bool:
         """Check if the response contains tool calls."""
@@ -68,6 +72,19 @@ class LLMResponse:
             "uncached_tokens": total_prompt - cached
         }
     
+    def is_incomplete(self) -> bool:
+        """Check if response was cut off due to max_tokens."""
+        return self.finish_reason == "length" or self.incomplete
+    
+    def get_completion_status(self) -> Dict[str, Any]:
+        """Get response completion details."""
+        return {
+            "is_complete": not self.is_incomplete(),
+            "finish_reason": self.finish_reason,
+            "continuations": self.continuation_count,
+            "status": "INCOMPLETE - continued" if self.is_incomplete() else "COMPLETE"
+        }
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert response to dictionary."""
         return {
@@ -76,5 +93,8 @@ class LLMResponse:
             "finish_reason": self.finish_reason,
             "usage": self.usage,
             "cached_tokens": self.cached_tokens,
-            "cache_info": self.get_cache_info()
+            "incomplete": self.incomplete,
+            "continuation_count": self.continuation_count,
+            "cache_info": self.get_cache_info(),
+            "completion_status": self.get_completion_status()
         }

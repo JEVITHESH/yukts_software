@@ -650,12 +650,223 @@ class Agent:
             else:
                 messages = self.messages
             
+            # Calculate dynamic token budget for this generation
+            # This ensures the model respects context limits BEFORE generation
+            dynamic_max_tokens = None
+            if self.chat is not None:
+                try:
+                    context_window = self.chat.context_window
+                    current_tokens = self.chat.get_token_count()
+                    context_buffer = self.chat.context_buffer
+                    
+                    # Available tokens: context_window - current_used - output_buffer
+                    tokens_available = context_window - current_tokens - context_buffer
+                    
+                    # Ensure minimum generation space (at least 512 tokens)
+                    dynamic_max_tokens = max(512, min(tokens_available, 4096))
+                    
+                    logger.debug(
+                        f"[{self.agent_id[:8]}] Token budget - Context: {context_window}, "
+                        f"Used: {current_tokens}, Buffer: {context_buffer}, "
+                        f"Available for generation: {tokens_available}, Allocating: {dynamic_max_tokens}"
+                    )
+                    
+                    if self.config.verbose:
+                        print(f"  📊 Token budget: {current_tokens}/{context_window} used, "
+                              f"allocating {dynamic_max_tokens} tokens for this turn")
+                    
+                    # 🔔 TRACE: Token budget debugging to Phoenix
+                    try:
+                        from .instrumentation.extractors import extract_token_budget_attributes
+                        from .instrumentation.tracer import yukta_tracer
+                        current_span = getattr(yukta_tracer, '_current_span', None)
+                        if current_span:
+                            extract_token_budget_attributes(
+                                current_span,
+                                context_window, current_tokens, context_buffer, dynamic_max_tokens
+                            )
+                    except Exception as trace_err:
+                        logger.debug(f"Failed to trace token budget: {trace_err}")
+                        
+                except Exception as e:
+                    logger.warning(f"[{self.agent_id[:8]}] Failed to calculate token budget: {e}")
+                    dynamic_max_tokens = None
+            
             # Call LLM
             try:
                 response: LLMResponse = self.llm_client.generate(
                     messages=messages,
-                    tools=tools if tools else None
+                    tools=tools if tools else None,
+                    max_tokens=dynamic_max_tokens
                 )
+                
+                # Handle incomplete responses due to max_tokens
+                continuation_count = 0
+                accumulated_content = response.content
+                continuation_tool_calls = []
+                
+                while response.is_incomplete() and continuation_count < 3:  # Max 3 continuations
+                    continuation_count += 1
+                    
+                    if self.config.verbose:
+                        print(f"\n  ⚠️  Response incomplete (finish_reason='{response.finish_reason}')")
+                        print(f"  🔄 Continuing response [attempt {continuation_count}/3]...\n")
+                    
+                    logger.info(
+                        f"[{self.agent_id[:8]}] Response incomplete due to max_tokens. "
+                        f"Auto-continuing with tool support (attempt {continuation_count}/3)"
+                    )
+                    
+                    # Build continuation message chain
+                    messages.append({
+                        "role": "assistant",
+                        "content": accumulated_content,
+                        "tool_calls": response.tool_calls if response.tool_calls else None
+                    })
+                    
+                    # Add continuation prompt
+                    continuation_prompt = {
+                        "role": "user",
+                        "content": f"Please continue your previous response from where you left off. "
+                                   f"Continue naturally without repeating what you already said. "
+                                   f"Use tools if needed to complete the response."
+                    }
+                    messages.append(continuation_prompt)
+                    
+                    # Recalculate token budget for continuation
+                    new_dynamic_max_tokens = dynamic_max_tokens
+                    if self.chat is not None:
+                        try:
+                            context_window = self.chat.context_window
+                            current_tokens = self.chat.get_token_count()
+                            context_buffer = self.chat.context_buffer
+                            tokens_available = context_window - current_tokens - context_buffer
+                            new_dynamic_max_tokens = max(512, min(tokens_available, 4096))
+                            
+                            logger.debug(f"[{self.agent_id[:8]}] Continuation budget: {new_dynamic_max_tokens} tokens")
+                        except Exception as e:
+                            logger.warning(f"Failed to recalculate continuation budget: {e}")
+                    
+                    # Get continuation (WITH TOOLS AVAILABLE)
+                    try:
+                        response = self.llm_client.generate(
+                            messages=messages,
+                            tools=tools if tools else None,  # KEEP tools available for continuation
+                            max_tokens=new_dynamic_max_tokens
+                        )
+                        
+                        # Check if continuation response has tool calls
+                        if response.has_tool_calls():
+                            if self.config.verbose:
+                                print(f"  🔧 Continuation requested {len(response.tool_calls)} tool call(s)")
+                            
+                            logger.info(
+                                f"[{self.agent_id[:8]}] Continuation response contains "
+                                f"{len(response.tool_calls)} tool call(s)"
+                            )
+                            
+                            # Execute tool calls from continuation
+                            for tool_call in response.tool_calls:
+                                tool_name = tool_call.get("function", {}).get("name")
+                                tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
+                                
+                                if not tool_name:
+                                    continue
+                                
+                                # Parse arguments
+                                try:
+                                    if isinstance(tool_args_str, str):
+                                        tool_args = json.loads(tool_args_str)
+                                    else:
+                                        tool_args = tool_args_str
+                                except Exception as e:
+                                    tool_args = {}
+                                    if self.config.verbose:
+                                        print(f"    ⚠️  Error parsing arguments: {e}")
+                                
+                                # Execute tool
+                                tool_result = self.execute_tool(tool_name, tool_args)
+                                
+                                # Add assistant message with tool calls to chain
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": response.content or "",
+                                    "tool_calls": response.tool_calls
+                                })
+                                
+                                # Format and add tool result
+                                tool_result_content = self._format_tool_result(tool_result)
+                                messages.append({
+                                    "role": "tool",
+                                    "content": tool_result_content,
+                                    "tool_call_id": tool_call.get("id", "")
+                                })
+                                
+                                continuation_tool_calls.append({
+                                    "tool": tool_name,
+                                    "arguments": tool_args
+                                })
+                                
+                                logger.debug(f"[{self.agent_id[:8]}] Executed continuation tool: {tool_name}")
+                            
+                            # Get final response after tool execution
+                            try:
+                                response = self.llm_client.generate(
+                                    messages=messages,
+                                    tools=tools if tools else None,
+                                    max_tokens=new_dynamic_max_tokens
+                                )
+                                logger.debug(f"[{self.agent_id[:8]}] Got final response after tool execution in continuation")
+                            except Exception as e:
+                                logger.warning(f"[{self.agent_id[:8]}] Failed to get response after tool call in continuation: {e}")
+                                response.incomplete = True
+                                break
+                        
+                        # Append continuation content to accumulated
+                        accumulated_content += response.content
+                        response.content = accumulated_content
+                        response.continuation_count = continuation_count
+                        
+                        logger.debug(
+                            f"[{self.agent_id[:8]}] Continuation successful: "
+                            f"+{len(response.content)} chars, tools_used={len(continuation_tool_calls)}"
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"[{self.agent_id[:8]}] Continuation failed: {e}")
+                        response.incomplete = True
+                        break
+                
+                # Add completion signal to content if there were continuations
+                if continuation_count > 0:
+                    tool_note = f" with {len(continuation_tool_calls)} tool call(s)" if continuation_tool_calls else ""
+                    
+                    if response.is_incomplete():
+                        response.content += f"\n\n[⚠️  Response still incomplete after {continuation_count} continuations{tool_note}]"
+                        if self.config.verbose:
+                            print(f"\n  ⚠️  Max continuations reached. Response may still be incomplete.")
+                    else:
+                        response.content += f"\n\n[✅ Response completed with {continuation_count} continuation(s){tool_note}]"
+                        if self.config.verbose:
+                            print(f"\n  ✅ Response successfully completed with {continuation_count} "
+                                  f"continuation(s){tool_note}")
+                    
+                    # 🔔 TRACE: Continuation session debugging to Phoenix
+                    try:
+                        from .instrumentation.extractors import extract_continuation_attributes
+                        from .instrumentation.tracer import yukta_tracer
+                        current_span = getattr(yukta_tracer, '_current_span', None)
+                        if current_span:
+                            continuation_tool_names = [tc.get("tool", "") for tc in continuation_tool_calls]
+                            extract_continuation_attributes(
+                                current_span,
+                                continuation_count,
+                                continuation_tool_calls,
+                                len(accumulated_content) - len(response.content),  # original length before accumulation
+                                len(response.content)  # final total length
+                            )
+                    except Exception as trace_err:
+                        logger.debug(f"Failed to trace continuation session: {trace_err}")
                 
                 self.stats["llm_calls"] += 1
                 self.stats["total_tokens"] += response.usage.get("total_tokens", 0)
