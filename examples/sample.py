@@ -42,7 +42,7 @@ config = AgentConfig(
 )
 
 # Initialize Ollama LLM client
-# llm1 = VLLMClient(model_name="minimax-m2.5",base_url="http://192.168.200.46:11458",optioms_override={"think":False})
+# llm1 = VLLMClient(model_name="minimax-m2.5",base_url="http://192.168.******",optioms_override={"think":False})
 llm=OllamaClient(model_name="qwen3:4b")
 print(llm.get_model_info()) # Test connection and print model info
 # Create agent with Ollama client

@@ -309,6 +309,14 @@ class Agent:
             try:
                 result = tool.function(**arguments)
                 self.stats["successful_tool_calls"] += 1
+                
+                # Ensure result is JSON-serializable before returning
+                try:
+                    json.dumps(result, default=str)  # Test serialization
+                    logger.debug(f"[{self.agent_id[:8]}] Tool result is JSON-serializable")
+                except TypeError as ve:
+                    logger.warning(f"[{self.agent_id[:8]}] Tool result not JSON-serializable, will convert on format")
+                
                 logger.info(f"[{self.agent_id[:8]}] Tool executed successfully: {tool_name}")
                 return {
                     "success": True,
@@ -320,7 +328,7 @@ class Agent:
                 logger.error(f"[{self.agent_id[:8]}] Tool execution failed: {tool_name} - {str(e)}")
                 return {
                     "success": False,
-                    "error": str(e),
+                    "error": str(e)[:1000],
                     "tool": tool_name
                 }
         else:
@@ -537,19 +545,28 @@ class Agent:
     
     def _format_tool_result(self, tool_result: Dict[str, Any]) -> str:
         """
-        Format tool execution result for LLM.
+        Format tool execution result for LLM with full content preservation.
         
         Args:
             tool_result: Result from execute_tool
             
         Returns:
-            Formatted string
+            Formatted JSON string with complete result
         """
         if tool_result.get("success"):
             result = tool_result.get("result", tool_result.get("message", "Success"))
-            return json.dumps(result, indent=2) if isinstance(result, (dict, list)) else str(result)
+            
+            try:
+                # Format with full content, using default=str for non-serializable objects
+                formatted = json.dumps(result, indent=2, default=str)
+                logger.debug(f"Tool result formatted successfully, {len(formatted)} chars")
+                return formatted
+            except Exception as e:
+                logger.warning(f"Failed to JSON serialize tool result: {e}. Converting to string.")
+                return str(result)
         else:
-            return f"Error: {tool_result.get('error', 'Unknown error')}"
+            error_msg = f"Error: {tool_result.get('error', 'Unknown error')}"
+            return error_msg
     
     def run(
         self,
@@ -734,7 +751,15 @@ class Agent:
                             # Add tool result to messages
                             tool_result_content = self._format_tool_result(tool_result)
                             
-                            # Try to add tool message with exception handling
+                            # Track tool call (BEFORE attempting to add message)
+                            tool_calls_made.append({
+                                "tool": tool_name,
+                                "arguments": tool_args,
+                                "result": tool_result,
+                                "message_persisted": False  # Will update if successful
+                            })
+                            
+                            # Try to add tool message with robust error handling
                             message_added = False
                             try:
                                 if self.use_memory_cache:
@@ -744,6 +769,8 @@ class Agent:
                                         metadata={"name": tool_name} 
                                     )
                                     message_added = True
+                                    logger.info(f"[{self.agent_id[:8]}] Tool message persisted to memory for '{tool_name}'")
+                                    
                                 elif self.chat is not None:
                                     self.chat.add_tool_message(
                                         content=tool_result_content,
@@ -751,7 +778,9 @@ class Agent:
                                         metadata={"name": tool_name}  
                                     )
                                     message_added = True
-                                    self._auto_save_chat_if_enabled()  # Auto-save after tool message
+                                    self._auto_save_chat_if_enabled()
+                                    logger.info(f"[{self.agent_id[:8]}] Tool message persisted to chat for '{tool_name}'")
+                                    
                                 else:
                                     tool_message = {
                                         "role": "tool",
@@ -761,21 +790,24 @@ class Agent:
                                     }
                                     self.messages.append(tool_message)
                                     message_added = True
-                            
+                                    logger.info(f"[{self.agent_id[:8]}] Tool message added to message list for '{tool_name}'")
+
                             except Exception as msg_err:
-                                logger.error(f"[AGENT] Failed to add tool message for '{tool_name}': {msg_err}")
+                                logger.warning(
+                                    f"[{self.agent_id[:8]}] ⚠️  Tool message persistence failed for '{tool_name}': {msg_err}. "
+                                    f"Tool result may not be available to LLM for next iteration."
+                                )
                                 if self.config.verbose:
-                                    print(f"    ✗ ERROR: Tool message not persisted: {msg_err}")
-                                # Even if message wasn't added to chat, still track the tool call
-                                # so the caller knows what was attempted
-                            
-                            # Track tool call (always, even if message addition failed)
-                            tool_calls_made.append({
-                                "tool": tool_name,
-                                "arguments": tool_args,
-                                "result": tool_result,
-                                "message_persisted": message_added
-                            })
+                                    print(f"    ⚠️  WARNING: Tool message could not be persisted: {msg_err}")
+                                message_added = False
+
+                            # Update tracking with persistence status
+                            tool_calls_made[-1]["message_persisted"] = message_added
+                            if not message_added:
+                                logger.error(
+                                    f"[{self.agent_id[:8]}] ❌ CRITICAL: Tool message for '{tool_name}' NOT persisted! "
+                                    f"Tool result will NOT reach LLM! Check chat/memory configuration."
+                                )
                         
                         except Exception as e:
                             logger.error(f"[AGENT] Unexpected error processing tool call: {e}")
