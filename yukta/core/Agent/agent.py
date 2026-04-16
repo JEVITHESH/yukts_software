@@ -623,6 +623,7 @@ class Agent:
         iterations = 0
         final_response = ""
         tool_calls_made = []
+        tool_execution_errors: List[Dict[str, Any]] = []
         
         if self.config.verbose:
             print(f"\n{'='*60}")
@@ -923,7 +924,6 @@ class Agent:
                     })
                 
                 # Execute each tool call with outer exception guard
-                tool_execution_errors: List[Dict[str, Any]] = []
                 try:
                     for tool_call in response.tool_calls:
                         try:

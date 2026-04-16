@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 import requests
+import json
 from ..Chat.llm_response import LLMResponse
 from openinference.semconv.trace import OpenInferenceSpanKindValues
 from ...instrumentation.decorators import trace_yukta
@@ -129,7 +130,34 @@ class OllamaClient(BaseLLMClient):
         
         try:
             response = self._make_request("/api/chat", payload, stream=kwargs.get("stream", False))
-            data = response.json()
+            
+            # Ollama returns newline-delimited JSON (streaming format)
+            # Try standard parsing first, then fall back to line-by-line
+            data = None
+            try:
+                # Try standard JSON parsing for single-object responses
+                data = response.json()
+            except Exception as json_err:
+                # Fall back to line-by-line parsing for streaming/newline-delimited responses
+                response_text = response.text.strip()
+                lines = response_text.split('\n')
+                
+                # Find the last valid JSON object (contains final message with done:true)
+                for line in reversed(lines):
+                    if line.strip():
+                        try:
+                            data = json.loads(line)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+                
+                if data is None:
+                    # No valid JSON found - raise with context
+                    raise RuntimeError(
+                        f"Failed to parse Ollama response. "
+                        f"Original error: {json_err}. "
+                        f"Response snippet: {response_text[:200]}"
+                    )
             
             # Validate response data
             if not isinstance(data, dict) or data is None:
