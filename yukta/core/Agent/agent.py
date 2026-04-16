@@ -589,6 +589,8 @@ class Agent:
         if not self.llm_client:
             raise RuntimeError("No LLM client configured. Set one using set_llm_client() or pass in constructor.")
         
+        # Initialize error tracking early to prevent UnboundLocalError in exception handlers
+        tool_execution_errors: List[Dict[str, Any]] = []
         
         logger.info(f"[{self.agent_id[:8]}] Starting agent run: user_message_len={len(user_message)}")
         
@@ -623,7 +625,6 @@ class Agent:
         iterations = 0
         final_response = ""
         tool_calls_made = []
-        tool_execution_errors: List[Dict[str, Any]] = []
         
         if self.config.verbose:
             print(f"\n{'='*60}")
