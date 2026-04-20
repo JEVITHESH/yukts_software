@@ -1,0 +1,80 @@
+{
+    "tasks": [
+        {
+            "task_id": 1,
+            "task_type": "agent-script",
+            "task_description": "Printing row 1 values",
+            "code": [
+                "print(f'ID: 1')",
+                "print(f'Name: Arun')",
+                "print(f'Age: 22')",
+                "print(f'Department: IT')",
+                "print(f'Salary: 30000')"
+            ]
+        },
+        {
+            "task_id": 2,
+            "task_type": "agent-script",
+            "task_description": "Printing row 2 values",
+            "code": [
+                "print(f'ID: 2')",
+                "print(f'Name: Priya')",
+                "print(f'Age: 24')",
+                "print(f'Department: HR')",
+                "print(f'Salary: 28000')"
+            ]
+        },
+        {
+            "task_id": 3,
+            "task_type": "agent-script",
+            "task_description": "Printing row 3 values",
+            "code": [
+                "print(f'ID: 3')",
+                "print(f'Name: Karthik')",
+                "print(f'Age: 23')",
+                "print(f'Department: Finance')",
+                "print(f'Salary: 32000')"
+            ]
+        },
+        {
+            "task_id": 4,
+            "task_type": "agent-script",
+            "task_description": "Printing row 4 values",
+            "code": [
+                "print(f'ID: 4')",
+                "print(f'Name: Divya')",
+                "print(f'Age: 25')",
+                "print(f'Department: Marketing')",
+                "print(f'Salary: 29000')"
+            ]
+        },
+        {
+            "task_id": 5,
+            "task_type": "agent-script",
+            "task_description": "Printing row 5 values",
+            "code": [
+                "print(f'ID: 5')",
+                "print(f'Name: Vijay')",
+                "print(f'Age: 26')",
+                "print(f'Department: Sales')",
+                "print(f'Salary: 31000')"
+            ]
+        },
+        {
+            "task_id": 6,
+            "task_type": "agent-script",
+            "task_description": "Example usage",
+            "code": [
+                "print('Hello, this is an example usage.')"
+            ]
+        },
+        {
+            "task_id": 7,
+            "task_type": "agent-action",
+            "task_description": "Sending results or generated code via email or other means",
+            "code": [
+                "print('Task completed. Results or generated code sent.')"
+            ]
+        }
+    ]
+}
