@@ -1,0 +1,5 @@
+{
+  "name": "AI Studio: Editor & Workflow",
+  "description": "A dual-mode development environment featuring a VS Code-style editor and an n8n-inspired workflow builder.",
+  "requestFramePermissions": []
+}
