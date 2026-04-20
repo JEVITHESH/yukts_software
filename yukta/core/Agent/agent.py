@@ -638,6 +638,28 @@ class Agent:
             iterations += 1
             self.state["iterations"] = iterations
             
+            # Check if max_iter limit is reached
+            if self.config.max_iter > 0 and iterations > self.config.max_iter:
+                error_msg = f"Maximum iterations limit ({self.config.max_iter}) reached. Agent loop terminated to prevent endless loop."
+                logger.warning(f"[{self.agent_id[:8]}] {error_msg}")
+                if self.config.verbose:
+                    print(f"\n⚠️  {error_msg}\n")
+                
+                # Add to history
+                self.add_to_history({
+                    "type": "iteration_limit_reached",
+                    "max_iter": self.config.max_iter,
+                    "iterations": iterations
+                })
+                
+                self.update_state(status="stopped", reason="max_iter_reached")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "iterations": iterations,
+                    "tool_calls": tool_calls_made
+                }
+            
             if self.config.verbose:
                 print(f"[Iteration {iterations}]")
             

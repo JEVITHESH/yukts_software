@@ -22,6 +22,7 @@ class AgentConfig:
         memory_log_level: Logging level for memory module (DEBUG, INFO, WARNING, ERROR)
         enable_memory_logging: Whether to enable memory logging
         memory_log_file: Optional separate log file for memory operations
+        max_iter: Maximum number of iterations for agent loop (prevents endless loops, 0 = unlimited)
         additional_settings: Dictionary for any additional settings
     """
     
@@ -44,6 +45,7 @@ class AgentConfig:
         enable_parallel_tools: bool = False,
         parallel_tool_workers: int = 3,
         enable_serialize_audit: bool = False,
+        max_iter: int = 0,
         **additional_settings
     ):
         self.temperature = temperature
@@ -59,6 +61,7 @@ class AgentConfig:
         self.memory_log_level = memory_log_level
         self.enable_memory_logging = enable_memory_logging
         self.memory_log_file = memory_log_file
+        self.max_iter = max_iter
         self.additional_settings = additional_settings
         self.storage_backend = storage_backend or JSONFileStorage(self.chat_save_dir or "")
         
