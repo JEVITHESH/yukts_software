@@ -122,6 +122,7 @@ interface AppState {
   bottomPanelHeight: number;
   editorInstance: any;
   isCodeDirty: boolean;
+  activeFile: string | null;
 }
 
 const initialFiles = {};
@@ -168,6 +169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [nodes, setNodes] = useState<any[]>([]);
   const [edges, setEdges] = useState<any[]>([]);
   const [isCodeDirty, setIsCodeDirty] = useState(false);
+  const [activeFile, setActiveFile] = useState<string | null>("workflow.py");
 
   // Sync state when activeWorkflowId changes
   React.useEffect(() => {
@@ -660,6 +662,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     },
     setSelectedNodeId,
+    setActiveFile: (fileName: string | null) => setActiveFile(fileName),
     setWorkflowCode: (code: string) => {
         setWorkflowCode(code);
         setIsCodeDirty(true);
@@ -1353,6 +1356,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     promptModal,
     editorInstance,
     isCodeDirty,
+    activeFile,
   };
 
   return (

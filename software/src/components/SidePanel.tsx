@@ -55,7 +55,11 @@ const ExplorerPanel = () => {
     fetchFileList();
     const handleGlobalClick = () => setContextMenu(null);
     window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
+    window.addEventListener('refresh-explorer', fetchFileList);
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('refresh-explorer', fetchFileList);
+    };
   }, [fetchFileList]);
 
   const handleUpload = () => {
@@ -199,7 +203,11 @@ const ExplorerPanel = () => {
                 <div 
                   key={i} 
                   onContextMenu={(e) => handleContextMenu(e, file)}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#37373d] rounded cursor-pointer group"
+                  onClick={() => {
+                    commands.setActiveFile(file.name);
+                    commands.switchToWorkflowCode();
+                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded cursor-pointer group ${state.activeFile === file.name ? 'bg-[#37373d] ring-1 ring-blue-500/50' : 'hover:bg-[#37373d]'}`}
                 >
                   <Icon size={14} className={iconColor} />
                   <span className="text-xs text-white/70 truncate">{file.name}</span>
@@ -229,7 +237,11 @@ const ExplorerPanel = () => {
             <div 
               key={i} 
               onContextMenu={(e) => handleContextMenu(e, file)}
-              className="flex items-center gap-2 px-6 py-1 hover:bg-[#37373d] cursor-pointer group"
+              onClick={() => {
+                commands.setActiveFile(file.name);
+                commands.switchToWorkflowCode();
+              }}
+              className={`flex items-center gap-2 px-6 py-1 rounded cursor-pointer group ${state.activeFile === file.name ? 'bg-[#37373d] ring-1 ring-blue-500/50' : 'hover:bg-[#37373d]'}`}
             >
               <file.icon size={14} className={file.color} />
               <span className="text-xs text-white/70">{file.name}</span>

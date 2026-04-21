@@ -16,29 +16,48 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { generateAgentCode } from './WorkflowBuilder';
 
 export const WorkflowCodeEditor: React.FC = () => {
   const { state, commands } = useApp();
-  const { workflowCode, isRunning, activeWorkflowId, workflows } = state;
+  const { activeFile, workflowCode, isRunning, activeWorkflowId, workflows } = state;
   const [codeError, setCodeError] = useState<string | null>(null);
 
   const activeWorkflow = activeWorkflowId ? workflows[activeWorkflowId] : null;
   const activeWorkflowName = activeWorkflow?.name || "Untitled Workflow";
+  const displayFileName = activeFile || "workflow.py";
+
+  const [actualCode, setActualCode] = useState<string>("");
+
+  useEffect(() => {
+    if (!activeFile) return;
+
+    fetch(`/api/files/read?path=${activeFile}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.content && !data.error) {
+          setActualCode(data.content);
+        } else {
+          setActualCode("");
+        }
+      })
+      .catch(() => setActualCode(""));
+  }, [activeFile]);
 
   const handleCodeChange = (value: string | undefined) => {
     if (value === undefined) return;
+    setActualCode(value);
     
-    // Always update the code state
-    commands.setWorkflowCode(value);
-    
-    const success = commands.syncCodeToWorkflow(value);
-    if (success) {
-      setCodeError(null);
-    } else {
-      // Don't show error for every keystroke unless it's a major parse failure
-      // setCodeError("Invalid Python syntax or unsupported structure.");
+    // Only update workflow architecture state if we are actually editing the main entry workflow graph file
+    if (activeFile === "workflow.py") {
+      commands.setWorkflowCode(value);
+      const success = commands.syncCodeToWorkflow(value);
+      if (success) {
+        setCodeError(null);
+      }
     }
   };
+
 
   const handleManualSync = () => {
     const success = commands.syncCodeToWorkflow(workflowCode);
@@ -64,7 +83,7 @@ export const WorkflowCodeEditor: React.FC = () => {
             <div className="flex flex-col">
               <span className="text-xs font-black text-white uppercase tracking-tighter">{activeWorkflowName}</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-white/30 font-mono">{activeWorkflow?.fileName || "workflow.py"}</span>
+                <span className="text-[10px] text-white/30 font-mono">{displayFileName}</span>
                 <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
               </div>
             </div>
@@ -145,9 +164,10 @@ export const WorkflowCodeEditor: React.FC = () => {
                 height="100%"
                 defaultLanguage="python"
                 theme="vs-dark"
-                value={workflowCode}
+                value={actualCode}
                 onChange={handleCodeChange}
                 options={{
+                  readOnly: activeFile !== 'workflow.py',
                   minimap: { enabled: true, scale: 0.8, side: 'right' },
                   fontSize: 15,
                   scrollBeyondLastLine: true,

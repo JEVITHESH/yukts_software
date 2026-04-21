@@ -260,6 +260,287 @@ const ConditionNode = ({ data }: any) => {
 
 
 
+export const generateAgentCode = (data: any, nodes: any[] = []) => {
+  const name = data.name || "AssistantBot";
+  const systemPrompt = data.system_prompt || "You are a helpful assistant.";
+  const modelName = data.model_name || "qwen:4b";
+
+  const toolsNodes = nodes.filter(n => n.type === 'tools');
+  const toolNames = toolsNodes.map(n => n.data?.function_name || "my_function").filter(Boolean);
+  const toolNamesString = toolNames.length > 0 ? `[${toolNames.join(', ')}]` : '[]';
+
+  let imports = `from yukta import create_agent\nfrom yukta.core.Clients.ollama_client import OllamaClient\n`;
+  if (toolNames.length > 0) {
+    imports += `from tools import *\n`;
+  }
+
+  let agentParams = `name="${name}",\nsystem_prompt="${systemPrompt}",\nllm_client=OllamaClient(model_name="${modelName}")`;
+  if (toolNames.length > 0) {
+    agentParams += `,\ntools=${toolNamesString}`;
+  }
+
+  return `${imports}
+agent = create_agent(
+${agentParams}
+)
+
+response = agent.invoke("What is Python?", use_llm=True)
+print(response)
+`;
+};
+
+const generateAndSaveAgentFile = async (data: any, nodes: any[] = []) => {
+    try {
+        await fetch('/api/files/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: 'Agent.py', content: generateAgentCode(data, nodes) })
+        });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+const deleteAgentFile = async () => {
+    try {
+        await fetch('/api/files/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: 'Agent.py' })
+        });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+export const generateToolsCode = (nodes: any[]) => {
+  const toolsNodes = nodes.filter(n => n.type === 'tools');
+  if (toolsNodes.length === 0) return '';
+
+  let code = `from yukta.tools.tools_pro import register_tool\n\n`;
+
+  toolsNodes.forEach(node => {
+    const data = node?.data || {};
+    const functionName = data.function_name || "my_function";
+    const desc = data.description || "Description";
+    const inputParams = data.input_params || "";
+    const returnType = data.return_type || "None";
+
+    code += `def ${functionName}(${inputParams}):\n`;
+    code += `    """ ${desc}\n`;
+    code += `    """\n`;
+    code += `    # TODO: implement logic\n`;
+    code += `    return ${returnType}\n\n`;
+    code += `# Register tool\n`;
+    code += `register_tool("${functionName}", ${functionName})\n\n`;
+  });
+
+  return code;
+};
+
+const generateAndSaveToolsFile = async (nodes: any[]) => {
+    const toolsNodes = nodes.filter(n => n.type === 'tools');
+    try {
+        if (toolsNodes.length === 0) {
+            await fetch('/api/files/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: 'tools.py' }) });
+        } else {
+            await fetch('/api/files/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileName: 'tools.py', content: generateToolsCode(nodes) })
+            });
+        }
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+const deleteToolsFile = async () => {
+    try {
+        await fetch('/api/files/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: 'tools.py' }) });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+export const generateConfigCode = (data: any) => {
+  const appName = data.app_name || "YuktaApp";
+  const debug = data.debug !== undefined ? data.debug : true;
+  const modelName = data.model_name || "qwen:4b";
+  return `CONFIG = {
+    "app_name": "${appName}",
+    "debug": ${debug ? 'True' : 'False'},
+    "model_name": "${modelName}"
+}
+`;
+};
+
+const generateAndSaveConfigFile = async (data: any) => {
+    try {
+        await fetch('/api/files/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: 'config.py', content: generateConfigCode(data) })
+        });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+const deleteConfigFile = async () => {
+    try {
+        await fetch('/api/files/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: 'config.py' }) });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+export const generateRunCode = (data: any) => {
+  const entryMessage = data.entry_message || "Hello";
+  return `from agent import agent
+
+if __name__ == "__main__":
+    response = agent.invoke("${entryMessage}", use_llm=True)
+    print(response)
+`;
+};
+
+const generateAndSaveRunFile = async (data: any) => {
+    try {
+        await fetch('/api/files/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: 'run.py', content: generateRunCode(data) })
+        });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+const deleteRunFile = async () => {
+    try {
+        await fetch('/api/files/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: 'run.py' }) });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+export const generateHostCode = (data: any) => {
+  const host = data.host || "127.0.0.1";
+  const port = data.port || 8000;
+  return `from fastapi import FastAPI
+from agent import agent
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"message": "Yukta API running"}
+
+@app.get("/ask")
+def ask(q: str):
+    return {"response": agent.invoke(q, use_llm=True)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="${host}", port=${port})
+`;
+};
+
+const generateAndSaveHostFile = async (data: any) => {
+    try {
+        await fetch('/api/files/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: 'host.py', content: generateHostCode(data) })
+        });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+const deleteHostFile = async () => {
+    try {
+        await fetch('/api/files/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: 'host.py' }) });
+        window.dispatchEvent(new CustomEvent('refresh-explorer'));
+    } catch(e) {}
+};
+
+const AgentNode = ({ data }: any) => (
+  <div className="modern-node border-pink-500/30 overflow-hidden min-w-[220px]">
+    <div className="node-accent bg-pink-500" />
+    <TargetNodeHandle position={Position.Left} color="border-pink-500" />
+    <div className="node-header border-pink-500/10 bg-pink-500/10">
+      <Sparkles className="w-4 h-4 text-pink-400" />
+      <span className="text-[10px] font-black text-white uppercase tracking-widest">AGENT</span>
+    </div>
+    <div className="node-body px-4 py-3">
+      <div className="text-[10px] text-white/40 uppercase mb-1">Name</div>
+      <div className="text-xs font-bold text-white/90 truncate">{data.name || '<USER_INPUT_NAME>'}</div>
+      <div className="text-[9px] text-white/30 italic mt-1 truncate">"{data.model_name || 'qwen:4b'}"</div>
+    </div>
+    <SourceNodeHandle position={Position.Right} color="border-pink-500" />
+  </div>
+);
+
+const ToolsNode = ({ data }: any) => (
+  <div className="modern-node border-orange-500/30 overflow-hidden min-w-[220px]">
+    <div className="node-accent bg-orange-500" />
+    <TargetNodeHandle position={Position.Left} color="border-orange-500" />
+    <div className="node-header border-orange-500/10 bg-orange-500/10">
+      <Code className="w-4 h-4 text-orange-400" />
+      <span className="text-[10px] font-black text-white uppercase tracking-widest">TOOLS</span>
+    </div>
+    <div className="node-body px-4 py-3">
+      <div className="text-[10px] text-white/40 uppercase mb-1">Function</div>
+      <div className="text-xs font-bold text-white/90 truncate">{data.function_name || 'my_function'}</div>
+    </div>
+    <SourceNodeHandle position={Position.Right} color="border-orange-500" />
+  </div>
+);
+
+const ConfigNode = ({ data }: any) => (
+  <div className="modern-node border-teal-500/30 overflow-hidden min-w-[220px]">
+    <div className="node-accent bg-teal-500" />
+    <TargetNodeHandle position={Position.Left} color="border-teal-500" />
+    <div className="node-header border-teal-500/10 bg-teal-500/10">
+      <Settings className="w-4 h-4 text-teal-400" />
+      <span className="text-[10px] font-black text-white uppercase tracking-widest">CONFIG</span>
+    </div>
+    <div className="node-body px-4 py-3">
+      <div className="text-[10px] text-white/40 uppercase mb-1">App Name</div>
+      <div className="text-xs font-bold text-white/90 truncate">{data.app_name || 'YuktaApp'}</div>
+    </div>
+    <SourceNodeHandle position={Position.Right} color="border-teal-500" />
+  </div>
+);
+
+const RunNode = ({ data }: any) => (
+  <div className="modern-node border-emerald-500/30 overflow-hidden min-w-[220px]">
+    <div className="node-accent bg-emerald-500" />
+    <TargetNodeHandle position={Position.Left} color="border-emerald-500" />
+    <div className="node-header border-emerald-500/10 bg-emerald-500/10">
+      <Play className="w-4 h-4 text-emerald-400" />
+      <span className="text-[10px] font-black text-white uppercase tracking-widest">RUN</span>
+    </div>
+    <div className="node-body flex justify-center py-3">
+      <div className="text-[11px] text-white/90 font-bold">{data.entry_message || "Hello"}</div>
+    </div>
+    <SourceNodeHandle position={Position.Right} color="border-emerald-500" />
+  </div>
+);
+
+const HostNode = ({ data }: any) => (
+  <div className="modern-node border-purple-500/30 overflow-hidden min-w-[220px]">
+    <div className="node-accent bg-purple-500" />
+    <TargetNodeHandle position={Position.Left} color="border-purple-500" />
+    <div className="node-header border-purple-500/10 bg-purple-500/10">
+      <Server className="w-4 h-4 text-purple-400" />
+      <span className="text-[10px] font-black text-white uppercase tracking-widest">HOST</span>
+    </div>
+    <div className="node-body px-4 py-3">
+      <div className="text-[10px] text-white/40 uppercase mb-1">Endpoints</div>
+      <div className="text-xs font-bold text-white/90 truncate">{data.host || '127.0.0.1'}:{data.port || 8000}</div>
+    </div>
+    <SourceNodeHandle position={Position.Right} color="border-purple-500" />
+  </div>
+);
+
 const nodeTypes = {
   start: StartNode,
   trigger: TriggerNode,
@@ -268,6 +549,11 @@ const nodeTypes = {
   variable: ProcessNode,
   display: PrintNode,
   condition: ConditionNode,
+  agent: AgentNode,
+  tools: ToolsNode,
+  config: ConfigNode,
+  run: RunNode,
+  host: HostNode,
 };
 
 const getConditionBranches = (variant: string) => {
@@ -390,6 +676,46 @@ const NODE_PALETTE = [
     description: 'Entry trigger node',
     group: 'Conditional Statements'
   },
+  {
+    type: 'agent',
+    label: 'Agent',
+    icon: Sparkles,
+    color: 'text-pink-400',
+    description: 'Yukta Agent',
+    group: 'Yukta Framework'
+  },
+  {
+    type: 'tools',
+    label: 'Tools',
+    icon: Code,
+    color: 'text-orange-400',
+    description: 'Custom Function Tools',
+    group: 'Yukta Framework'
+  },
+  {
+    type: 'config',
+    label: 'Config',
+    icon: Settings,
+    color: 'text-teal-400',
+    description: 'App Configuration',
+    group: 'Yukta Framework'
+  },
+  {
+    type: 'run',
+    label: 'Run',
+    icon: Play,
+    color: 'text-emerald-400',
+    description: 'Execute Agent Runner',
+    group: 'Yukta Framework'
+  },
+  {
+    type: 'host',
+    label: 'Host',
+    icon: Server,
+    color: 'text-purple-400',
+    description: 'FastAPI Server Host',
+    group: 'Yukta Framework'
+  },
 ];
 
 export const WorkflowBuilder: React.FC = () => {
@@ -486,14 +812,32 @@ export const WorkflowBuilder: React.FC = () => {
   }, [commands]);
 
   const updateNodeData = (id: string, newData: any) => {
-    commands.setNodes((nds: any) =>
-      nds.map((node: any) => {
+    commands.setNodes((nds: any) => {
+      const newNodes = nds.map((node: any) => {
         if (node.id === id) {
           return { ...node, data: { ...node.data, ...newData } };
         }
         return node;
-      })
-    );
+      });
+
+      const updatedNode = newNodes.find((n: any) => n.id === id);
+      if (updatedNode) {
+        if (updatedNode.type === 'agent') {
+          generateAndSaveAgentFile(updatedNode.data, newNodes);
+        } else if (updatedNode.type === 'tools') {
+          generateAndSaveToolsFile(newNodes);
+          const agentNode = newNodes.find((n: any) => n.type === 'agent');
+          if (agentNode) generateAndSaveAgentFile(agentNode.data, newNodes);
+        } else if (updatedNode.type === 'config') {
+          generateAndSaveConfigFile(updatedNode.data);
+        } else if (updatedNode.type === 'run') {
+          generateAndSaveRunFile(updatedNode.data);
+        } else if (updatedNode.type === 'host') {
+          generateAndSaveHostFile(updatedNode.data);
+        }
+      }
+      return newNodes;
+    });
   };
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -544,7 +888,36 @@ export const WorkflowBuilder: React.FC = () => {
         data: defaultData,
       };
 
-      commands.setNodes((nds: any) => nds.concat(newNode));
+      commands.setNodes((nds: any) => {
+        const newNodes = nds.concat(newNode);
+        if (type === 'agent') {
+          defaultData.name = defaultData.name || "<USER_INPUT_NAME>";
+          defaultData.system_prompt = defaultData.system_prompt || "<USER_INPUT_SYSTEM_PROMPT>";
+          defaultData.model_name = defaultData.model_name || "qwen:4b";
+          generateAndSaveAgentFile(defaultData, newNodes);
+        } else if (type === 'tools') {
+          defaultData.function_name = defaultData.function_name || "my_function";
+          defaultData.description = defaultData.description || "Description";
+          defaultData.input_params = defaultData.input_params || "";
+          defaultData.return_type = defaultData.return_type || "None";
+          generateAndSaveToolsFile(newNodes);
+          const agentNode = newNodes.find((n: any) => n.type === 'agent');
+          if (agentNode) generateAndSaveAgentFile(agentNode.data, newNodes);
+        } else if (type === 'config') {
+          defaultData.app_name = defaultData.app_name || "YuktaApp";
+          defaultData.debug = defaultData.debug !== undefined ? defaultData.debug : true;
+          defaultData.model_name = defaultData.model_name || "qwen:4b";
+          generateAndSaveConfigFile(defaultData);
+        } else if (type === 'run') {
+          defaultData.entry_message = defaultData.entry_message || "Hello";
+          generateAndSaveRunFile(defaultData);
+        } else if (type === 'host') {
+          defaultData.host = defaultData.host || "127.0.0.1";
+          defaultData.port = defaultData.port || 8000;
+          generateAndSaveHostFile(defaultData);
+        }
+        return newNodes;
+      });
     },
     [commands]
   );
@@ -635,7 +1008,20 @@ export const WorkflowBuilder: React.FC = () => {
                     Auto-Layout
                   </button>
                   <button 
-                    onClick={() => commands.switchToWorkflowCode()}
+                    onClick={() => {
+                      let fileToOpen = 'workflow.py';
+                      if (selectedNodeId) {
+                        const type = nodes.find(n => n.id === selectedNodeId)?.type;
+                        if (type === 'agent') fileToOpen = 'Agent.py';
+                        else if (type === 'tools') fileToOpen = 'tools.py';
+                        else if (type === 'config') fileToOpen = 'config.py';
+                        else if (type === 'run') fileToOpen = 'run.py';
+                        else if (type === 'host') fileToOpen = 'host.py';
+                      }
+                      commands.setActiveFile(fileToOpen);
+                      console.log("Viewing file:", fileToOpen);
+                      commands.switchToWorkflowCode();
+                    }}
                     className="flex items-center gap-2 px-3 py-1.5 bg-[#3c3c3c] hover:bg-[#454545] text-white/70 hover:text-white text-xs font-bold rounded transition-all border border-[#454545]"
                   >
                     <Code size={14} />
@@ -806,7 +1192,206 @@ export const WorkflowBuilder: React.FC = () => {
                       </div>
                     )}
 
+                    {selectedNode.type === 'agent' && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Name</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.name || ""}
+                            onChange={(e) => updateNodeData(selectedNode.id, { name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">System Prompt</span>
+                          <textarea 
+                            value={selectedNode.data?.system_prompt || ""}
+                            onChange={(e) => updateNodeData(selectedNode.id, { system_prompt: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500 min-h-[60px]"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Model Name</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.model_name || "qwen:4b"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { model_name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => {
+                              commands.setActiveFile('Agent.py');
+                              commands.switchToWorkflowCode();
+                            }}
+                            className="w-full flex items-center justify-center gap-2 p-2 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-400 text-xs font-bold rounded border border-blue-600/30 transition-all"
+                          >
+                            <Code size={14} />
+                            View Code
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
+                    {selectedNode.type === 'tools' && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Function Name</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.function_name || "my_function"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { function_name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Description</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.description || "Description"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { description: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Input Params</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.input_params || ""}
+                            onChange={(e) => updateNodeData(selectedNode.id, { input_params: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Return Type</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.return_type || "None"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { return_type: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => {
+                              commands.setActiveFile('tools.py');
+                              commands.switchToWorkflowCode();
+                            }}
+                            className="w-full flex items-center justify-center gap-2 p-2 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-400 text-xs font-bold rounded border border-blue-600/30 transition-all"
+                          >
+                            <Code size={14} />
+                            View Code
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedNode.type === 'config' && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">App Name</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.app_name || "YuktaApp"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { app_name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Model Name</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.model_name || "qwen:4b"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { model_name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedNode.data?.debug !== false}
+                            onChange={(e) => updateNodeData(selectedNode.id, { debug: e.target.checked })}
+                            className="w-3 h-3 text-blue-500 bg-[#3c3c3c] border-[#454545] rounded"
+                          />
+                          <span className="text-[11px] text-white/70">Debug Mode</span>
+                        </div>
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => {
+                              commands.setActiveFile('config.py');
+                              commands.switchToWorkflowCode();
+                            }}
+                            className="w-full flex items-center justify-center gap-2 p-2 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-400 text-xs font-bold rounded border border-blue-600/30 transition-all"
+                          >
+                            <Code size={14} />
+                            View Code
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedNode.type === 'run' && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Entry Message</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.entry_message || "Hello"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { entry_message: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => {
+                              commands.setActiveFile('run.py');
+                              commands.switchToWorkflowCode();
+                            }}
+                            className="w-full flex items-center justify-center gap-2 p-2 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-400 text-xs font-bold rounded border border-blue-600/30 transition-all"
+                          >
+                            <Code size={14} />
+                            View Code
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedNode.type === 'host' && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Host IP</span>
+                          <input 
+                            type="text" 
+                            value={selectedNode.data?.host || "127.0.0.1"}
+                            onChange={(e) => updateNodeData(selectedNode.id, { host: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-white/70">Port</span>
+                          <input 
+                            type="number" 
+                            value={selectedNode.data?.port || 8000}
+                            onChange={(e) => updateNodeData(selectedNode.id, { port: parseInt(e.target.value) || 8000 })}
+                            className="w-full px-3 py-1.5 bg-[#3c3c3c] border border-[#454545] rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => {
+                              commands.setActiveFile('host.py');
+                              commands.switchToWorkflowCode();
+                            }}
+                            className="w-full flex items-center justify-center gap-2 p-2 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-400 text-xs font-bold rounded border border-blue-600/30 transition-all"
+                          >
+                            <Code size={14} />
+                            View Code
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {selectedNode.type === 'condition' && (
                        <div className="space-y-4">
@@ -895,7 +1480,23 @@ export const WorkflowBuilder: React.FC = () => {
               <div className="p-4 bg-[#1e1e1e] border-t border-[#333]">
                 <button 
                   onClick={() => {
-                    commands.setNodes((nds: any) => nds.filter((n: any) => n.id !== selectedNode.id));
+                    commands.setNodes((nds: any) => {
+                      const newNodes = nds.filter((n: any) => n.id !== selectedNode.id);
+                      if (selectedNode.type === 'agent') {
+                        deleteAgentFile();
+                      } else if (selectedNode.type === 'tools') {
+                        generateAndSaveToolsFile(newNodes);
+                        const agentNode = newNodes.find((n: any) => n.type === 'agent');
+                        if (agentNode) generateAndSaveAgentFile(agentNode.data, newNodes);
+                      } else if (selectedNode.type === 'config') {
+                        deleteConfigFile();
+                      } else if (selectedNode.type === 'run') {
+                        deleteRunFile();
+                      } else if (selectedNode.type === 'host') {
+                        deleteHostFile();
+                      }
+                      return newNodes;
+                    });
                     commands.setSelectedNodeId(null);
                   }}
                   className="w-full flex items-center justify-center gap-2 p-2 bg-red-600/10 hover:bg-red-600 text-red-400 hover:text-white text-xs font-bold rounded border border-red-600/30 transition-all"
@@ -964,15 +1565,7 @@ export const WorkflowBuilder: React.FC = () => {
                   </div>
                 ))}
 
-                <div className="pt-4 mt-4 border-t border-[#333]">
-                  <button 
-                    onClick={() => commands.execute("sendAIMessage", "Suggest a new node type for my workflow")}
-                    className="w-full flex items-center justify-center gap-2 p-3 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs font-bold transition-all"
-                  >
-                    <Plus size={14} />
-                    Custom Node
-                  </button>
-                </div>
+
               </div>
 
               <div className="p-4 bg-[#1e1e1e] border-t border-[#333]">
