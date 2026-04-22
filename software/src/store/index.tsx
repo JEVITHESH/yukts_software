@@ -23,42 +23,58 @@ const getEnv = (key: string) => {
 const GROQ_KEY = getEnv("GROQ_API_KEY");
 const groq = GROQ_KEY ? new Groq({ apiKey: GROQ_KEY, dangerouslyAllowBrowser: true }) : null;
 
-const AGENT_SYSTEM_PROMPT = `You are the Antigravity Autonomous Workflow Orchestrator. 
-Your task is to organize a multi-agent swarm to solve user requests through a visual workflow and Python code.
+const AGENT_SYSTEM_PROMPT = `You are the Yukta Framework Orchestrator. 
+Your task is to build autonomous multi-agent systems using the Yukta framework.
 
-SWARM STRUCTURE:
-- 'agent-main': The central brain for orchestration, delegation, and complex reasoning.
-- 'agent-data': Expert in file parsing (CSV, Excel), data cleaning, and statistical analysis.
-- 'agent-script': Expert in logic, math, custom algorithms, and system transformations.
-- 'agent-search': Expert in web retrieval, knowledge gathering, and documentation search.
-- 'agent-action': Expert in final output actions like email, notifications, or database writes.
+YUKTA COMPONENTS:
+- Agent: The reasoning engine. Use 'from [module] import get_agent'.
+- Tool: Specialized functions. Use 'tp.add_tool(create_custom_tool(...))'.
+- Config: System settings. Use 'tp.config(...)'.
+- Host: Deployment settings. Use 'tp.host(...)'.
+- ToolProcessor: The central hub (tp = ToolProcessor()).
 
-RULES:
-1. DESIGN FIRST: Analyze the request and determine which agents are needed.
-2. STRUCTURE: Map the task to a flow: Start -> Agents/Nodes -> End.
-3. CODE: Always output the full Python code in a \`\`\`python ... \`\`\` block. 
-4. SYNTAX: Use clear variable names. For Agent tasks, use comments like:
-   # AI Agent Task: agent-data: Load excel file
-   df = pd.read_excel('assets/data.xlsx')
-5. HYBRID: You can mix standard Python (if/else, loops) with specialized Agent calls.
-6. NO TRIVIAL CODE: If the user asks for a workflow, build a robust multi-node system.
+PROACTIVE IMPLEMENTATION RULE:
+- NEVER ask if the user wants code. ALWAYS provide the full, working implementation for the orchestrator (run.py) AND every Agent and Tool you mention.
+- Use a separate code block for each file.
+- At the very top of each code block, include a marker: # [FILE: filename.py]
 
-Example Logic:
-Thinking: The user wants to analyze a file and then notify them. I will use 'agent-data' for analysis and 'agent-action' for notification...
+CODE STRUCTURE RULES:
+1. DESIGN: Identify needed Agents, Tools, and Config.
+2. MARKERS: You MUST prefix every Yukta component initialization in run.py with:
+   # [AGENT] [node_id] [Agent Name] [filename.py]
+   # [TOOL] [node_id] [Tool Name] [filename.py]
+   # [CONFIG] [node_id] [Config Name] [filename.py]
+   # [HOST] [node_id] [Host Name] [filename.py]
+3. SEQUENTIAL LOGIC: Write code that reflects the flow. Use the shared ToolProcessor 'tp'.
+4. IMPORTS: Always include necessary Yukta imports.
+
+ERROR HANDLING AND FIXING:
+- If a runtime error occurs, explain the root cause and provide the corrected code for the affected file(s).
+- Ask for confirmation before re-running ONLY if the fix is destructive; otherwise, just provide the fix.
+
+Example Output:
 \`\`\`python
-# AI Agent Task: agent-data: Analyze the excel file
-import pandas as pd
-df = pd.read_excel('assets/data.xlsx')
-summary = df.describe().to_string()
+# [FILE: run.py]
+from yukta import ToolProcessor, create_custom_tool, setup_logging
+...
+# [AGENT] agent_1 Researcher researcher.py
+try:
+    from researcher import get_agent
+    r = get_agent()
+    r.run("...")
+except: pass
+\`\`\`
 
-# AI Agent Task: agent-action: Send the summary via mail
-print(f"Summary: {summary}")
-# mail.send(to="admin@example.com", body=summary)
+\`\`\`python
+# [FILE: researcher.py]
+from yukta import YuktaFrameworkAgent
+def get_agent():
+    return YuktaFrameworkAgent(name="Researcher", ...)
 \`\`\`
 `;
 
 export type AppMode = "workflow" | "workflow-code";
-export type PanelType = "search" | "git" | "run" | "extensions" | "ai" | "workflow" | "explorer" | null;
+export type PanelType = "search" | "git" | "run" | "extensions" | "workflow" | "explorer" | "assistant" | null;
 
 interface AppState {
   mode: AppMode;
@@ -81,7 +97,10 @@ interface AppState {
     autoLayout: boolean;
     temperature: number;
     accentColor: string;
+    ollamaUrl: string;
+    ollamaModel: string;
   };
+  workflowErrors: string[];
   workflows: Record<string, { name: string; fileName: string; nodes: any[]; edges: any[] }>;
   activeWorkflowId: string | null;
   selectedNodeId: string | null;
@@ -123,6 +142,8 @@ interface AppState {
   editorInstance: any;
   isCodeDirty: boolean;
   activeFilePath: string | null;
+  isSettingsOpen: boolean;
+  aiPendingRequest: { prompt: string; isBuildRequest?: boolean; isCheckRequest?: boolean } | null;
 }
 
 const initialFiles = {};
@@ -137,6 +158,8 @@ const DEFAULT_SETTINGS = {
   autoLayout: true,
   temperature: 0.7,
   accentColor: "#3b82f6",
+  ollamaUrl: "http://localhost:11434",
+  ollamaModel: "llama3",
 };
 
 interface AppContextType {
@@ -154,6 +177,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
+  const [workflowErrors, setWorkflowErrors] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
   const [workflows, setWorkflows] = useState<Record<string, { 
@@ -170,6 +194,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [edges, setEdges] = useState<any[]>([]);
   const [isCodeDirty, setIsCodeDirty] = useState(false);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Sync state when activeWorkflowId changes
   React.useEffect(() => {
@@ -234,6 +259,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [agentLogs, setAgentLogs] = useState<{ type: "system" | "agent" | "error"; content: string; timestamp: number }[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [aiPendingRequest, setAiPendingRequest] = useState<{ prompt: string; isBuildRequest?: boolean; isCheckRequest?: boolean } | null>(null);
 
   const isInternalSyncRef = useRef(false);
   const lastGeneratedCodeRef = useRef("");
@@ -271,7 +297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Rule: Automatically save the generated run.py file to disk
         if (wf && wf.folderName && wf.fileName) {
-          const fullPath = `${wf.folderName}/${wf.fileName}`;
+          const fullPath = `assets/${wf.folderName}/${wf.fileName}`;
           fetch("/api/files/save", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -290,18 +316,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const generateCodeFromWorkflow = (nds: any[], eds: any[]) => {
     if (!nds || nds.length === 0) return "# Empty Workflow\n";
-
-    let code = "# Generated by Antigravity Yukta Workflow\n\n";
     
-    // Sort nodes by position Y then X to get a rough execution order if not connected
-    // But we should follow edges from Start node
-    // 1. Determine Starting Node
-    // Priority: find nodes with no incoming edges
-    const targetIds = new Set(eds.map(e => e.target));
-    let startNodes = nds.filter(n => !targetIds.has(n.id));
+    let startNodes = nds.filter(n => !eds.some(e => e.target === n.id));
     
     // Fallback to all nodes if no roots found (cyclic)
-    if (startNodes.length === 0 && nds.length > 0) startNodes = [nds[0]];
+    if (startNodes.length === 0 && nds.length > 0) {
+      const startNode = nds.find(n => n.type === 'start') || nds[0];
+      startNodes = [startNode];
+    }
     
     if (startNodes.length === 0) return "# Error: No nodes found in workflow\n";
 
@@ -309,27 +331,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const lines: string[] = [];
     
     // 1. Imports and Setup
-    lines.push("import os");
-    lines.push("import sys");
-    lines.push("import logging");
     lines.push("from yukta import ToolProcessor, create_custom_tool, setup_logging");
+    lines.push("import logging");
+    lines.push("import os");
     lines.push("");
-    lines.push("# Configure logging");
-    lines.push("setup_logging(level=logging.INFO)");
+    lines.push("# Initialize Logging");
+    lines.push("setup_logging(level='INFO')");
+    lines.push("");
+    lines.push("# Initialize ToolProcessor");
+    lines.push("tp = ToolProcessor()");
+    lines.push("");
+    lines.push("# --- Diagnostic Setup ---");
+    lines.push("# Register Error Logger Tool");
+    lines.push("try:");
+    lines.push("    from error_logger_tool import log_error");
+    lines.push("    tp.add_tool(create_custom_tool(");
+    lines.push("        name=\"Error Logger\",");
+    lines.push("        description=\"Logs system errors to a file for AI diagnostic analysis\",");
+    lines.push("        parameters=[{\"name\": \"error_msg\", \"type\": \"string\"}],");
+    lines.push("        function=log_error");
+    lines.push("    ))");
+    lines.push("except ImportError:");
+    lines.push("    pass");
+    lines.push("");
+    lines.push("# Initialize Diagnostic Agent");
+    lines.push("diag_agent = None");
+    lines.push("try:");
+    lines.push("    from diagnostic_agent import get_agent");
+    lines.push("    diag_agent = get_agent()");
+    lines.push("    diag_agent.tools_processor = tp");
+    lines.push("except ImportError:");
+    lines.push("    pass");
     lines.push("");
     
-    // 2. Initialize central ToolProcessor
-    lines.push("# Initialize central ToolProcessor for all nodes");
-    lines.push("tp = ToolProcessor(parallel=True)");
-    lines.push("");
-
-    // 3. Pre-register all Tools found in the workflow to the processor
+    // 2. Pre-register all Tools found in the workflow to the processor
     const toolNodes = nds.filter(n => n.type === 'tool');
     if (toolNodes.length > 0) {
       lines.push("# --- Tool Registration ---");
       toolNodes.forEach(n => {
-        const toolModule = n.data.fileName.replace('.py', '');
+        const toolModule = n.data.fileName?.replace('.py', '') || 'custom_tool';
         const funcName = n.data.function_name || 'process';
+        lines.push(`# [TOOL] ${n.id} ${n.data.name || 'Tool'}`);
         lines.push(`try:`);
         lines.push(`    from ${toolModule} import ${funcName}`);
         lines.push(`    tp.add_tool(create_custom_tool(`);
@@ -339,13 +381,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lines.push(`        function=${funcName}`);
         lines.push(`    ))`);
         lines.push(`    print(f"✓ Registered tool: ${n.data.name}")`);
-        lines.push(`except ImportError as e:`);
-        lines.push(`    print(f"✗ Failed to import tool ${n.data.name}: {e}")`);
+        lines.push(`except ImportError:`);
+        lines.push(`    print(f"✗ Could not import tool module: ${toolModule}")`);
         lines.push("");
       });
     }
 
-    // 4. Workflow Traversal
+    // 3. Workflow Traversal
     const traverse = (nodeId: string, indent = "") => {
       if (visited.has(nodeId)) return;
       visited.add(nodeId);
@@ -354,39 +396,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       switch (node.type) {
         case 'start':
-          lines.push(`${indent}# --- Workflow Entry Point ---`);
+          lines.push(`${indent}# --- Workflow Execution Started ---`);
           break;
         case 'config':
-          lines.push(`${indent}# [CONFIG] ${node.id} ${node.data.name}`);
-          lines.push(`${indent}tp.config(memory_type='${node.data.memory_type}', logging_level='${node.data.logging_level}')`);
+          lines.push(`${indent}# [CONFIG] ${node.id} ${node.data.name || 'Config'}`);
+          lines.push(`${indent}tp.config(memory_type='${node.data.memory_type || 'buffer'}', logging_level='${node.data.logging_level || 'INFO'}')`);
           break;
         case 'host':
-          lines.push(`${indent}# [HOST] ${node.id} ${node.data.name}`);
-          lines.push(`${indent}tp.host(host='${node.data.host_address}', port=${node.data.port})`);
+          lines.push(`${indent}# [HOST] ${node.id} ${node.data.name || 'Host'}`);
+          lines.push(`${indent}tp.host(host='${node.data.host_address || '0.0.0.0'}', port=${node.data.port || 8000})`);
           break;
         case 'agent':
-          const agentId = nodeId.replace(/[^a-z0-9]/gi, '_');
-          const agentModule = node.data.fileName.replace('.py', '');
+          const agentId = node.id.replace(/[^a-z0-9]/gi, '_');
+          const agentModule = node.data.fileName?.replace('.py', '') || 'custom_agent';
           lines.push(`${indent}# [AGENT] ${node.id} ${node.data.agent_name || 'AI Assistant'}`);
           lines.push(`${indent}try:`);
           lines.push(`${indent}    from ${agentModule} import get_agent`);
           lines.push(`${indent}    agent_${agentId} = get_agent()`);
-          lines.push(`${indent}    # Injecting the shared ToolProcessor`);
           lines.push(`${indent}    agent_${agentId}.tools_processor = tp`);
-          lines.push(`${indent}    `);
-          lines.push(`${indent}    # Start the reasoning loop`);
-          lines.push(`${indent}    print(f"Agent {agent_${agentId}.agent_name} is starting its task...")`);
-          lines.push(`${indent}    response = agent_${agentId}.run("Please analyze the current workflow and execute necessary tools.")`);
-          lines.push(`${indent}    print(f"Result: {response.get('response', 'No response')}")`);
-          lines.push(`${indent}except ImportError as e:`);
-          lines.push(`${indent}    print(f"✗ Failed to import agent ${node.data.agent_name}: {e}")`);
-          break;
-        case 'tool':
-          lines.push(`${indent}# Tool ${node.data.name} is available in ToolProcessor`);
+          lines.push(`${indent}    print(f"Agent ${node.data.agent_name || 'AI Assistant'} is running...")`);
+          lines.push(`${indent}    agent_${agentId}.run("Execute the current task in the workflow context.")`);
+          lines.push(`${indent}except ImportError:`);
+          lines.push(`${indent}    print(f"✗ Could not import agent module: ${agentModule}")`);
           break;
         case 'condition':
           lines.push(`${indent}# [CONDITION] ${node.id}`);
-          lines.push(`${indent}if ${node.data.condition}:`);
+          lines.push(`${indent}if ${node.data.condition || 'True'}:`);
           const trueEdges = eds.filter(e => e.source === nodeId && e.sourceHandle === 'true');
           trueEdges.forEach(e => traverse(e.target, indent + "    "));
           lines.push(`${indent}else:`);
@@ -395,13 +430,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         case 'for_loop':
           lines.push(`${indent}# [FOR LOOP] ${node.id}`);
-          lines.push(`${indent}for ${node.data.item_var} in ${node.data.collection}:`);
+          lines.push(`${indent}for ${node.data.item_var || 'item'} in ${node.data.collection || '[]'}:`);
           const loopEdges = eds.filter(e => e.source === nodeId);
           loopEdges.forEach(e => traverse(e.target, indent + "    "));
           return;
         case 'while_loop':
           lines.push(`${indent}# [WHILE LOOP] ${node.id}`);
-          lines.push(`${indent}while ${node.data.condition}:`);
+          lines.push(`${indent}while ${node.data.condition || 'True'}:`);
           const wLoopEdges = eds.filter(e => e.source === nodeId);
           wLoopEdges.forEach(e => traverse(e.target, indent + "    "));
           return;
@@ -414,13 +449,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       nextEdges.forEach(e => traverse(e.target, indent));
     };
 
-    startNodes.forEach(sn => traverse(sn.id));
+    lines.push("\nif __name__ == '__main__':");
+    lines.push("    try:");
+    lines.push("        print('=== Yukta Workflow Execution ===')");
+    startNodes.forEach(sn => traverse(sn.id, "        "));
+    lines.push("        print('=== Workflow Completed Successfully ===')");
+    lines.push("    except Exception as e:");
+    lines.push("        print(f'\\n!!! CRITICAL ERROR: {str(e)}')");
+    lines.push("        if diag_agent:");
+    lines.push("            print('Triggering Diagnostic Agent...')");
+    lines.push("            diag_agent.run(f'The system crashed with error: {str(e)}. Log this error using the Error Logger tool.')");
+    lines.push("        else:");
+    lines.push("            with open('error_report.txt', 'w') as f:");
+    lines.push("                f.write(str(e))");
     
     // Add markers for tools at the end or top to ensure they are discovered by parser
     lines.push("\n# --- Yukta Framework Node Markers ---");
-    toolNodes.forEach(n => lines.push(`# [TOOL] ${n.id} ${n.data.name}`));
+    toolNodes.forEach(n => {
+      const toolModule = n.data.fileName?.replace('.py', '') || 'custom_tool';
+      lines.push(`# [TOOL] ${n.id} ${n.data.name || 'Tool'} ${n.data.fileName || (toolModule + '.py')}`);
+    });
     
-    return code + lines.join("\n");
+    return lines.join("\n");
   };
 
   // Automated Sync Effect
@@ -550,20 +600,124 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return next;
       });
     },
-    toggleAIChat: () => setIsAIChatOpen(prev => !prev),
-    sendAIMessage: async (content: string) => {
+    toggleAIChat: () => commands.setActivePanel("assistant"),
+    clearAIChat: () => setAiMessages([]),
+    toggleSettings: () => setIsSettingsOpen(prev => !prev),
+    closeSettings: () => setIsSettingsOpen(false),
+    updateSettings: (newSettings: any) => setSettings((prev: any) => ({ ...prev, ...newSettings })),
+    validatePythonCode: (code: string) => {
+      const errors: string[] = [];
+      const lines = code.split('\n');
+      
+      // 1. Basic Indentation check
+      lines.forEach((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        
+        const indent = line.match(/^\s*/)?.[0].length || 0;
+        if (indent % 4 !== 0) {
+          errors.push(`Line ${i+1}: Indentation should be 4 spaces (found ${indent}).`);
+        }
+      });
+
+      // 2. Colon check
+      lines.forEach((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        
+        const isBlockStart = /^(def|if|elif|else|while|for|class|try|except|finally)\b/.test(trimmed);
+        if (isBlockStart && !trimmed.endsWith(':') && !trimmed.includes(':#')) {
+           errors.push(`Line ${i+1}: Missing colon ':' at the end of '${trimmed.split(' ')[0]}' statement.`);
+        }
+      });
+
+      // 3. Parentheses check
+      const openParens = (code.match(/\(/g) || []).length;
+      const closeParens = (code.match(/\)/g) || []).length;
+      if (openParens !== closeParens) {
+        errors.push(`Mismatch in parentheses: ${openParens} open vs ${closeParens} closed.`);
+      }
+
+      // 4. Bracket check
+      const openBrackets = (code.match(/\[/g) || []).length;
+      const closeBrackets = (code.match(/\]/g) || []).length;
+      if (openBrackets !== closeBrackets) {
+        errors.push(`Mismatch in square brackets: ${openBrackets} open vs ${closeBrackets} closed.`);
+      }
+
+      return errors;
+    },
+    sendAIMessage: async (content: string, forceChoice?: 'clear' | 'reuse') => {
       const lowerContent = content.toLowerCase();
-      const isBuildRequest = /build|create|write|implement|make|generate|code for|script for|program|workflow for/i.test(content);
+      const isBuildRequest = /build|create|write|implement|make|generate|code for|script for|program|workflow for|fix|resolve|correct|repair/i.test(content);
       const isCheckRequest = /check|verify|analyze|explain|debug/i.test(content);
       
+      // Rule: If nodes already exist, ask the user whether to clear or reuse
+      if (nodes.length > 0 && !forceChoice && (isBuildRequest || isCheckRequest)) {
+        setAiPendingRequest({ prompt: content, isBuildRequest, isCheckRequest });
+        setAiMessages(prev => [...prev, 
+          { role: "user", content: content, timestamp: Date.now() },
+          { 
+            role: "assistant", 
+            content: "⚠️ **Existing Workflow Detected**\n\nI see you already have nodes in your workspace. Would you like me to **Clear** the current workflow and start fresh, or **Reuse** the existing nodes and build on top of them?",
+            analysis: { intentType: "choice-required" },
+            timestamp: Date.now() 
+          }
+        ]);
+        return;
+      }
+
+      if (forceChoice === 'clear') {
+        setNodes([]);
+        setEdges([]);
+        setWorkflowCode("");
+        setIsCodeDirty(false);
+      }
+      
+      setAiPendingRequest(null);
+      setIsAILoading(true);
+
       const newMessage = { 
         role: "user" as const, 
         content,
         timestamp: Date.now()
       };
       
-      setAiMessages(prev => [...prev, newMessage]);
-      setIsAILoading(true);
+      // Don't add user message again if it was already added during choice prompt
+      if (!forceChoice) {
+        setAiMessages(prev => [...prev, newMessage]);
+      }
+
+      if (content.trim().toLowerCase() === "/status") {
+        const ollamaUrl = (settings as any).ollamaUrl || "http://localhost:11434";
+        const groqApiKey = (settings as any).groqApiKey || GROQ_KEY || "";
+        
+        let statusText = "🔍 **Yukta AI Status Check**\n\n";
+        
+        try {
+          const start = Date.now();
+          const ollamaRes = await fetch(`${ollamaUrl}/api/tags`).catch(() => null);
+          const end = Date.now();
+          
+          if (ollamaRes && ollamaRes.ok) {
+            statusText += `✅ **Ollama:** Online (${end - start}ms)\n   - URL: ${ollamaUrl}\n   - Model: ${(settings as any).ollamaModel || "llama3"}\n`;
+          } else {
+            statusText += `❌ **Ollama:** Offline\n   - Attempted: ${ollamaUrl}\n`;
+          }
+        } catch(e) {
+          statusText += `❌ **Ollama:** Error (${(e as any).message})\n`;
+        }
+        
+        if (groqApiKey) {
+          statusText += `✅ **Groq:** Key Configured\n`;
+        } else {
+          statusText += `⚠️ **Groq:** No Key Found (Fallback disabled)\n`;
+        }
+        
+        setAiMessages(prev => [...prev, { role: "assistant", content: statusText, timestamp: Date.now() }]);
+        setIsAILoading(false);
+        return;
+      }
 
       // Full system prompt shown in UI
       const systemPromptText = AGENT_SYSTEM_PROMPT;
@@ -603,57 +757,103 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         let aiResponseText = "";
         
         const groqApiKey = (settings as any).groqApiKey || GROQ_KEY || "";
+        const ollamaUrl = (settings as any).ollamaUrl || "http://localhost:11434";
+        const ollamaModel = (settings as any).ollamaModel || "llama3";
 
-        if (groqApiKey) {
-          try {
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${groqApiKey}`
-              },
-              body: JSON.stringify({
-                model: "llama-3.3-70b-versatile",
-                messages: [
-                  { role: "system", content: systemPromptText },
-                  ...aiMessages.map((m: any) => ({ role: m.role, content: m.content })),
-                  { role: "user", content: `Current Workflow Code:\n\`\`\`python\n${workflowCode}\n\`\`\`\n\nUser Request: ${finalPromptContent}` }
-                ],
-                temperature: 0.5,
-                max_tokens: 2048
-              })
-            });
+        try {
+          // ─── Try Ollama First ───────────────────────────────────────────────
+          const ollamaResponse = await fetch(`${ollamaUrl}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: ollamaModel,
+              messages: [
+                { role: "system", content: systemPromptText },
+                ...aiMessages.map((m: any) => ({ role: m.role, content: m.content })),
+                { role: "user", content: `Current Workflow Code:\n\`\`\`python\n${workflowCode}\n\`\`\`\n\nUser Request: ${finalPromptContent}` }
+              ],
+              stream: false,
+              options: {
+                temperature: (settings as any).temperature || 0.5,
+              }
+            })
+          });
 
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({}));
-              throw new Error(`Groq API Error: ${response.status} — ${(errorData as any).error?.message || response.statusText}`);
-            }
-
-            const data = await response.json();
-            aiResponseText = data.choices ? data.choices[0].message.content : "No response from AI.";
-          } catch (e: any) {
-            console.error("Groq Fetch Error:", e);
-            aiResponseText = `⚠️ Connection Error: ${e.message}\n\nPlease verify your Groq API key in Settings.`;
+          if (ollamaResponse.ok) {
+            const data = await ollamaResponse.json();
+            aiResponseText = data.message?.content || "No response from Ollama.";
+          } else {
+            throw new Error(`Ollama responded with status: ${ollamaResponse.status}`);
           }
-        } else {
-          aiResponseText = "⚠️ No Groq API key configured. Please add your Groq API key in Settings to activate Antigravity's intelligence.";
+        } catch (ollamaErr: any) {
+          console.warn("Ollama connection failed, attempting Groq fallback...", ollamaErr);
+          
+          if (groqApiKey) {
+            try {
+              const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${groqApiKey}`
+                },
+                body: JSON.stringify({
+                  model: "llama-3.3-70b-versatile",
+                  messages: [
+                    { role: "system", content: systemPromptText },
+                    ...aiMessages.map((m: any) => ({ role: m.role, content: m.content })),
+                    { role: "user", content: `Current Workflow Code:\n\`\`\`python\n${workflowCode}\n\`\`\`\n\nUser Request: ${finalPromptContent}` }
+                  ],
+                  temperature: 0.5,
+                  max_tokens: 2048
+                })
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(`Groq API Error: ${response.status} — ${(errorData as any).error?.message || response.statusText}`);
+              }
+
+              const data = await response.json();
+              aiResponseText = data.choices ? data.choices[0].message.content : "No response from AI.";
+            } catch (e: any) {
+              console.error("Groq Fetch Error:", e);
+              aiResponseText = `⚠️ Connection Error:\nOllama: ${ollamaErr.message}\nGroq: ${e.message}\n\nPlease ensure Ollama is running at ${ollamaUrl} or verify your Groq API key.`;
+            }
+          } else {
+            aiResponseText = `⚠️ No AI Service Available:\nOllama failed to connect at ${ollamaUrl}. Please ensure it's running with 'ollama serve'.\n\nAlternatively, add a Groq API key in Settings for cloud-based intelligence.`;
+          }
         }
 
-        // Extract Python code block from AI response and push to editor + workflow canvas
-        // 1. Try standard triple backticks first
-        let codeMatch = aiResponseText.match(/```python\n?([\s\S]*?)```/);
+        // Extract all Python code blocks from AI response
+        const codeBlocks: { fileName: string, code: string }[] = [];
+        const pythonBlockRegex = /```python\n?([\s\S]*?)```/g;
+        let pMatch;
+        while ((pMatch = pythonBlockRegex.exec(aiResponseText)) !== null) {
+          const rawCode = pMatch[1].trim();
+          const fileMarkerMatch = rawCode.match(/^#\s*\[FILE:\s*([\w.]+)\s*\]/m);
+          const fileName = fileMarkerMatch ? fileMarkerMatch[1] : (codeBlocks.length === 0 ? "run.py" : "");
+          codeBlocks.push({ fileName, code: rawCode });
+        }
+
+        // Fallback for generic blocks if no python blocks found
+        if (codeBlocks.length === 0) {
+          const genericBlockRegex = /```\n?([\s\S]*?)```/g;
+          let gMatch;
+          while ((gMatch = genericBlockRegex.exec(aiResponseText)) !== null) {
+             const rawCode = gMatch[1].trim();
+             if (rawCode.includes("def ") || rawCode.includes("import ") || rawCode.includes("#")) {
+               const fileMarkerMatch = rawCode.match(/^#\s*\[FILE:\s*([\w.]+)\s*\]/m);
+               const fileName = fileMarkerMatch ? fileMarkerMatch[1] : (codeBlocks.length === 0 ? "run.py" : "");
+               codeBlocks.push({ fileName, code: rawCode });
+             }
+          }
+        }
+
+        const runCodeObj = codeBlocks.find(b => b.fileName === "run.py") || codeBlocks[0];
+        let extractedCode = runCodeObj ? runCodeObj.code : "";
         
-        // 2. Fallback: Try any ``` block
-        if (!codeMatch) {
-          codeMatch = aiResponseText.match(/```\n?([\s\S]*?)```/);
-        }
-
-        // 3. Last resort: If the response starts with code-like tokens or is mostly code
-        let extractedCode = "";
-        if (codeMatch && codeMatch[1]) {
-          extractedCode = codeMatch[1].trim();
-        } else {
-          // Heuristic: Check if the response contains code-like patterns
+        // If still no code, try the line-by-line heuristic as a last resort
+        if (!extractedCode) {
           const lines = aiResponseText.split("\n");
           const codeLines: string[] = [];
           let foundLikelyCode = false;
@@ -666,35 +866,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
             
             const isCodeLike = 
-              l.includes("=") || 
-              l.includes("print(") || 
-              l.includes("def ") || 
-              l.includes("import ") ||
-              l.includes("if ") ||
-              l.includes("elif ") ||
-              l.includes("else:") ||
-              l.includes("for ") ||
-              l.includes("while ") ||
-              l.startsWith("#") ||
-              l.startsWith("'''") ||
-              l.startsWith("\"\"\"") ||
-              line.startsWith("    ") || 
-              line.startsWith("\t");
+              l.includes("=") || l.includes("print(") || l.includes("def ") || 
+              l.includes("import ") || l.includes("if ") || l.includes("elif ") || 
+              l.includes("else:") || l.includes("for ") || l.includes("while ") || 
+              l.startsWith("#") || l.startsWith("'''") || l.startsWith("\"\"\"") ||
+              line.startsWith("    ") || line.startsWith("\t");
 
             if (isCodeLike) {
               foundLikelyCode = true;
               codeLines.push(line);
             } else if (foundLikelyCode) {
-              // If we already found code and hit a non-code line, stop if it looks like a long sentence
-              if (l.split(" ").length > 8 && !l.includes("(")) {
-                break;
-              }
+              if (l.split(" ").length > 8 && !l.includes("(")) break;
               codeLines.push(line);
             }
           }
           
           if (codeLines.length >= 1) {
             extractedCode = codeLines.join("\n").trim();
+            codeBlocks.push({ fileName: "run.py", code: extractedCode });
           }
         }
 
@@ -705,8 +894,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // 2. Determine target workflow ID
           let targetWorkflowId = activeWorkflowId;
           const isNewWorkflow = !targetWorkflowId;
+          let folderName = "";
+
           if (isNewWorkflow) {
             targetWorkflowId = `wf-${Date.now()}`;
+            folderName = `AI_Project_${Date.now().toString().slice(-4)}`;
+            setWorkspace(prev => ({ ...prev, folders: [...prev.folders, folderName] }));
+            setExpandedFolders(prev => [...new Set([...prev, targetWorkflowId!])]);
+          } else {
+            const wf = workflows[targetWorkflowId!];
+            if (wf && wf.folderName) folderName = wf.folderName;
           }
 
           // 3. Update all related states in a coordinated way
@@ -719,16 +916,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setLogs(prev => [...prev, "[AI] Code update skipped to preserve manual edits."]);
           } else {
             setWorkflowCode(extractedCode);
+            setWorkflowErrors(commands.validatePythonCode(extractedCode));
             setNodes(newNodes);
             setEdges(newEdges);
 
             setWorkflows((prev: any) => {
               const updatedWorkflows = { ...prev };
               const existing = updatedWorkflows[targetWorkflowId!];
+              const fName = isNewWorkflow ? folderName : existing?.folderName;
               
               updatedWorkflows[targetWorkflowId!] = { 
                 name: isNewWorkflow ? "AI Generated Workflow" : (existing?.name || "AI Updated Workflow"), 
-                fileName: existing?.fileName || `Workflow_${Date.now().toString().slice(-4)}.py`,
+                folderName: fName,
+                fileName: existing?.fileName || `run.py`,
                 code: extractedCode,
                 nodes: newNodes, 
                 edges: newEdges 
@@ -746,6 +946,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             
             agentAnalysis += "\n✅ AI Logic Ready: Workflow and Python code generated.";
             setIsCodeDirty(false); // AI generated code is fresh
+
+            // Create physical files
+            if (folderName) {
+              // 0. Provision Diagnostic Infrastructure
+              commands.provisionDiagnosticFiles(folderName);
+
+              // 1. Create main run.py
+              fetch("/api/files/save", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileName: `assets/${folderName}/run.py`, content: extractedCode })
+              }).catch(console.error);
+
+              // 2. Iterate through parsed nodes and create their physical files if they are Yukta nodes
+              newNodes.forEach((node: any) => {
+                const isYuktaNode = ['agent', 'tool', 'config', 'host', 'diagnostic'].includes(node.type);
+                if (isYuktaNode) {
+                  // Ensure they have a fileName
+                  if (!node.data.fileName) {
+                    const label = node.data.label?.replace(/\s+/g, '_').toLowerCase() || node.type;
+                    node.data.fileName = `${label}_${Date.now().toString().slice(-4)}.py`;
+                  }
+
+                  // Look for specific code for this file from the AI response blocks
+                  const specificCodeObj = codeBlocks.find(b => b.fileName === node.data.fileName);
+                  if (specificCodeObj) {
+                    node.data.code = specificCodeObj.code;
+                  }
+
+                  // Create the file
+                  commands.createYuktaFile(node.type as any, node.data.fileName, node.data, node.id, folderName);
+                }
+              });
+            }
           }
         }
 
@@ -760,7 +994,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             agentAnalysis,
             nodesUsed,
             customNodeNeeded,
-            codeGenerated: !!(codeMatch && codeMatch[1])
+            codeGenerated: codeBlocks.length > 0,
+            errors: extractedCode ? commands.validatePythonCode(extractedCode) : []
           }
         };
 
@@ -771,7 +1006,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAILoading(false);
         setAiMessages(prev => [...prev, { 
           role: "assistant", 
-          content: `⚠️ Internal Error: ${error.message}. The Antigravity engine encountered a critical failure.`,
+          content: `⚠️ Internal Error: ${error.message}. The Yukta engine encountered a critical failure.`,
           timestamp: Date.now()
         }]);
         setLogs(prev => [...prev, `[AI Error] ${error.message}`]);
@@ -816,7 +1051,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     },
 
-    clearAIChat: () => setAiMessages([{ role: "assistant", content: "Chat cleared. How can I help you?" }]),
+    clearAIChat: () => {
+      setAiMessages([{ role: "assistant", content: "Chat cleared. How can I help you?" }]);
+      setAiPendingRequest(null);
+    },
 
     // Workflow Actions
     setNodes: (nds: any) => {
@@ -860,6 +1098,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setWorkflowCode: (code: string) => {
         setWorkflowCode(code);
         setIsCodeDirty(true);
+        
+        // Revalidate code for errors
+        const errors = commands.validatePythonCode(code);
+        setWorkflowErrors(errors);
         
         // Sync back to workflows map
         if (activeWorkflowId) {
@@ -935,59 +1177,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lines.forEach((line, idx) => {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith("def ")) return;
-          if (trimmed.startsWith("#") && !trimmed.startsWith("# [AGENT]") && !trimmed.startsWith("# [TOOL]") && !trimmed.startsWith("# [CONFIG]") && !trimmed.startsWith("# [HOST]")) return;
+          
+          // Only process lines with Yukta markers OR explicit initialization
+          const isMarker = trimmed.startsWith("# [AGENT]") || trimmed.startsWith("# [TOOL]") || trimmed.startsWith("# [CONFIG]") || trimmed.startsWith("# [HOST]");
+          const isInit = /=\s*(get_agent|Agent|Tool|Config|Host)\(/.test(trimmed) || /tp\.(add_tool|config|host)\(/.test(trimmed);
+          
+          if (!isMarker && !isInit) return;
           
           let nodeId = `node-${idx}-${Math.random().toString(36).substr(2, 4)}`;
           let type = "custom";
           let data: any = { label: trimmed, synced: true };
 
-          let parsedType = null;
-          let parsedData: any = null;
-
-          if (trimmed.startsWith("# [AGENT]")) {
-             const parts = trimmed.split(" ");
-             parsedType = "agent";
-             nodeId = parts[2] || nodeId;
-             parsedData = { agent_name: parts.slice(3).join(" ") || "AI Agent" };
-          } else if (trimmed.startsWith("# [TOOL]")) {
-             const parts = trimmed.split(" ");
-             parsedType = "tool";
-             nodeId = parts[2] || nodeId;
-             parsedData = { name: parts.slice(3).join(" ") || "Tool" };
-          } else if (trimmed.startsWith("# [CONFIG]")) {
-             const parts = trimmed.split(" ");
-             parsedType = "config";
-             nodeId = parts[2] || nodeId;
-             parsedData = { name: parts.slice(3).join(" ") || "Config" };
-          } else if (trimmed.startsWith("# [HOST]")) {
-             const parts = trimmed.split(" ");
-             parsedType = "host";
-             nodeId = parts[2] || nodeId;
-             parsedData = { name: parts.slice(3).join(" ") || "Host" };
-          } else if (/=\s*get_agent\(/.test(trimmed) || /=\s*Agent\(/.test(trimmed)) {
-             parsedType = "agent";
-             const match = trimmed.match(/(\w+)\s*=/);
-             parsedData = { agent_name: match ? match[1] : "Agent" };
-          } else if (/(tp\.add_tool|create_custom_tool)/.test(trimmed)) {
-             parsedType = "tool";
-             const match = trimmed.match(/name=['"]([^'"]+)['"]/);
-             parsedData = { name: match ? match[1] : "Tool" };
-          } else if (/tp\.config\(/.test(trimmed) || /=\s*Config\(/.test(trimmed)) {
-             parsedType = "config";
-             parsedData = { name: "Config" };
-          } else if (/tp\.host\(/.test(trimmed) || /=\s*Host\(/.test(trimmed)) {
-             parsedType = "host";
-             parsedData = { name: "Host" };
-          }
-
-          if (parsedType) {
-              type = parsedType;
-              data = { ...data, ...parsedData };
+          if (isMarker) {
+            const parts = trimmed.split(" ");
+            const markerType = parts[1].replace("[", "").replace("]", "").toLowerCase();
+            type = markerType;
+            nodeId = parts[2] || nodeId;
+            
+            // Format: # [TYPE] [id] [Name...] [filename.py]
+            // We assume the last part is filename if it ends in .py
+            let nameParts = parts.slice(3);
+            let fileName = "";
+            if (nameParts.length > 0 && nameParts[nameParts.length - 1].endsWith(".py")) {
+              fileName = nameParts.pop()!;
+            }
+            
+            const name = nameParts.join(" ") || markerType.charAt(0).toUpperCase() + markerType.slice(1);
+            data = { 
+              ...data, 
+              label: name,
+              fileName: fileName || `${name.toLowerCase().replace(/\s+/g, '_')}.py`,
+              agent_name: name,
+              name: name
+            };
           } else {
-              return;
+            // Heuristic for implicit initialization
+            if (/get_agent|Agent/.test(trimmed)) type = "agent";
+            else if (/add_tool|Tool/.test(trimmed)) type = "tool";
+            else if (/config|Config/.test(trimmed)) type = "config";
+            else if (/host|Host/.test(trimmed)) type = "host";
+
+            const match = trimmed.match(/(\w+)\s*=/);
+            const name = match ? match[1] : type.charAt(0).toUpperCase() + type.slice(1);
+            data = { 
+              ...data, 
+              label: name,
+              fileName: `${name.toLowerCase()}_${type}.py`,
+              agent_name: name,
+              name: name
+            };
           }
 
-          newNodes.push({ id: nodeId, type, position: getPos(0), data });
+          newNodes.push({ id: nodeId, type, position: getPos(newNodes.length), data });
 
           if (previousNodeId) {
              addEdge(previousNodeId, nodeId);
@@ -1042,9 +1283,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActivePanel("workflow");
     },
     openYuktaFile: async (filePath: string, nodeId?: string) => {
-      console.log(`[Store] Opening Yukta file: ${filePath}`);
+      const fullPath = filePath.startsWith('assets/') ? filePath : `assets/${filePath}`;
+      console.log(`[Store] Opening Yukta file: ${fullPath}`);
       try {
-        const response = await fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`);
+        const response = await fetch(`/api/files/read?path=${encodeURIComponent(fullPath)}`);
         if (!response.ok) throw new Error("Failed to read file.");
         const data = await response.json();
         
@@ -1065,7 +1307,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAgentLogs(prev => [...prev, { type: "error", content: `Failed to open file: ${filePath}`, timestamp: Date.now() }]);
       }
     },
-      // Redundant createNewWorkflow removed completely
 
     saveWorkflow: async () => {
       if (!activeWorkflowId) return;
@@ -1096,16 +1337,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error("Save error:", err);
       }
     },
-    createYuktaFile: async (type: 'agent' | 'tool' | 'run' | 'config' | 'host', fileName: string, data: any = {}, nodeId?: string) => {
-      if (!activeWorkflowId) return;
-      const wf = workflows[activeWorkflowId];
-      if (!wf || !wf.folderName) return;
+    createYuktaFile: async (type: 'agent' | 'tool' | 'run' | 'config' | 'host', fileName: string, data: any = {}, nodeId?: string, overrideFolder?: string) => {
+      let folderPath = overrideFolder;
+      if (!folderPath) {
+        if (!activeWorkflowId) return;
+        const wf = workflows[activeWorkflowId];
+        if (!wf || !wf.folderName) return;
+        folderPath = wf.folderName;
+      }
 
-      const fullPath = `${wf.folderName}/${fileName}`;
+      const fullPath = `assets/${folderPath}/${fileName}`;
       console.log(`[Store] Creating Yukta ${type} file: ${fullPath} with data:`, data);
       
-      let content = "";
-      if (type === 'agent') {
+      let content = data.code || "";
+      if (content) {
+        // Skip template generation if explicit code is provided
+      } else if (type === 'agent') {
         content = `from yukta import AgentBuilder, SystemPrompt, AgentConfig
 import logging
 
@@ -1193,7 +1440,7 @@ import logging
 YUKTA_CONFIG = {
     "api_key": "${data.api_key || ''}",
     "base_url": "${data.base_url || ''}",
-    "log_level": logging.${data.log_level || 'INFO'},
+    "log_level": logging.${data.logging_level || 'INFO'},
 }
 
 def setup():
@@ -1209,7 +1456,7 @@ if __name__ == "__main__":
 import uvicorn
 
 # Host Configuration for MCP/API services
-HOST = "${data.host || '0.0.0.0'}"
+HOST = "${data.host_address || '0.0.0.0'}"
 PORT = ${data.port || 8000}
 
 def serve():
@@ -1268,7 +1515,9 @@ if __name__ == "__main__":
       // 3. Prepare Command
       // Navigate to folder and run run.py
       const folderPath = `assets/${wf.folderName}`;
-      const command = `cd ${folderPath}; python run.py\r`;
+      // Use ; which is universal for PowerShell and Bash. 
+      // CMD uses & but PowerShell is the default on Windows now.
+      const command = `if ($PWD.Path -notlike "*${wf.folderName}") { cd "assets/${wf.folderName}" }; python run.py\r`;
 
       window.dispatchEvent(new CustomEvent("terminal-send-command", {
         detail: { id: activeTerminalId, command }
@@ -1279,6 +1528,89 @@ if __name__ == "__main__":
         content: `Executing workflow in folder: ${wf.folderName}`, 
         timestamp: Date.now() 
       }]);
+
+      // Automated Error Check: Poll for error_report.txt after 3 seconds
+      setTimeout(() => {
+        commands.checkActiveWorkflowForErrors();
+      }, 3000);
+    },
+
+    checkActiveWorkflowForErrors: async () => {
+      if (!activeWorkflowId) return;
+      const wf = workflows[activeWorkflowId];
+      if (!wf || !wf.folderName) return;
+
+      const errorFilePath = `assets/${wf.folderName}/error_report.txt`;
+      
+      try {
+        const response = await fetch(`/api/files/read?path=${encodeURIComponent(errorFilePath)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.content && data.content.trim()) {
+            const errorContent = data.content.trim();
+            setAgentLogs(prev => [...prev, { 
+              type: "error", 
+              content: `Diagnostic Agent detected a crash. Report found in ${wf.folderName}/error_report.txt`, 
+              timestamp: Date.now() 
+            }]);
+
+            // Automatically notify AI Assistant about the error
+            setIsAIChatOpen(true);
+            setActivePanel("ai");
+            
+            // We send a "hidden" message to the AI to trigger the fix loop
+            // But we display it nicely to the user
+            commands.sendAIMessage(`[SYSTEM ERROR DETECTED]: The workflow crashed with the following error:\n\n${errorContent}\n\nPlease explain this error to me and ask if you should fix it.`);
+            
+            // Clear the error file so we don't keep detecting the same error
+            await fetch("/api/files/save", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileName: errorFilePath, content: "" })
+            });
+          }
+        }
+      } catch (err) {
+        // Error file likely doesn't exist yet, which is fine
+      }
+    },
+
+    provisionDiagnosticFiles: async (folderName: string) => {
+      const diagAgentCode = `from yukta import YuktaFrameworkAgent
+
+def get_agent():
+    return YuktaFrameworkAgent(
+        name="Diagnostic Agent",
+        role="Error analysis and logging",
+        goals=["Catch runtime errors and log them to error_report.txt using the Error Logger tool."],
+        backstory="A specialized agent designed to ensure system stability by monitoring crashes."
+    )
+`;
+      const errorLoggerCode = `import os
+
+def log_error(error_msg: str):
+    """Logs the error message to error_report.txt."""
+    try:
+        with open("error_report.txt", "w") as f:
+            f.write(error_msg)
+        print(f"Error logged to error_report.txt")
+        return True
+    except Exception as e:
+        print(f"Failed to log error: {e}")
+        return False
+`;
+
+      await fetch("/api/files/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: `assets/${folderName}/diagnostic_agent.py`, content: diagAgentCode })
+      });
+
+      await fetch("/api/files/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: `assets/${folderName}/error_logger_tool.py`, content: errorLoggerCode })
+      });
     },
 
     stopWorkflow: () => {
@@ -1583,7 +1915,7 @@ def process():
       };
       input.click();
     },
-    createNewWorkflow: (callback?: (id: string) => void) => {
+    createNewWorkflow: (callback?: (id: string, folderName?: string) => void) => {
       commands.openPromptModal({
         title: "Create New Folder",
         message: "Enter folder name:",
@@ -1595,13 +1927,13 @@ def process():
           }
           const id = `wf-${Date.now()}`;
           const folderName = name.trim().replace(/\s+/g, "_");
-          const runPyPath = `${folderName}/run.py`;
+          const runPyPath = `assets/${folderName}/run.py`;
           
           try {
             await fetch("/api/files/save", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileName: runPyPath, content: "# Generated by Antigravity Yukta Workflow\n\n" })
+              body: JSON.stringify({ fileName: runPyPath, content: "# Generated by Yukta Workflow\n\n" })
             });
           } catch (e) {
             console.error("Failed to create initial run.py file", e);
@@ -1613,7 +1945,7 @@ def process():
               name: name.trim(), 
               folderName,
               fileName: "run.py", 
-              code: "# Generated by Antigravity Yukta Workflow\n\n",
+              code: "# Generated by Yukta Workflow\n\n",
               nodes: [], 
               edges: [] 
             }
@@ -1627,9 +1959,83 @@ def process():
             content: `New folder structure created: assets/${folderName}/`, 
             timestamp: Date.now() 
           }]);
-          if (callback) callback(id);
+          if (callback) callback(id, folderName);
         }
       });
+    },
+
+    renameFolder: async ({ id, name }: { id: string, name: string }) => {
+      const wf = workflows[id];
+      if (!wf) return;
+      const oldName = wf.folderName;
+      const newFolderName = name.trim().replace(/\s+/g, "_");
+      
+      try {
+        const res = await fetch("/api/files/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ oldName, newName: newFolderName })
+        });
+        
+        if (res.ok) {
+          setWorkflows(prev => {
+            const next = { ...prev };
+            next[id] = { ...next[id], name, folderName: newFolderName };
+            return next;
+          });
+          setAgentLogs(prev => [...prev, { type: "system", content: `Renamed folder to ${newFolderName}`, timestamp: Date.now() }]);
+        }
+      } catch (err) {
+        console.error("Failed to rename folder:", err);
+      }
+    },
+
+    deleteFolder: async (id: string) => {
+      const wf = workflows[id];
+      if (!wf) return;
+      
+      try {
+        // Backend doesn't have recursive delete folder yet, but we can try to delete individual files or just clear from state
+        // For now, let's assume the user just wants it gone from the UI/Workspace
+        setWorkflows(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        if (activeWorkflowId === id) setActiveWorkflowId(null);
+        setAgentLogs(prev => [...prev, { type: "system", content: `Removed folder ${wf.folderName} from workspace`, timestamp: Date.now() }]);
+      } catch (err) {
+        console.error("Failed to delete folder:", err);
+      }
+    },
+
+    deleteFile: async ({ wfId, fileName, nodeId }: { wfId: string, fileName: string, nodeId?: string }) => {
+      const wf = workflows[wfId];
+      if (!wf) return;
+      
+      try {
+        const res = await fetch("/api/files/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: `assets/${wf.folderName}/${fileName}` })
+        });
+        
+        if (res.ok) {
+          // If it was linked to a node, remove the node too
+          if (nodeId) {
+            setNodes(prev => prev.filter(n => n.id !== nodeId));
+          }
+          
+          setAgentLogs(prev => [...prev, { type: "system", content: `Deleted file ${fileName}`, timestamp: Date.now() }]);
+        }
+      } catch (err) {
+        console.error("Failed to delete file:", err);
+      }
+    },
+    
+    revalidateActiveWorkflow: () => {
+      const errors = commands.validatePythonCode(workflowCode);
+      setWorkflowErrors(errors);
     },
 
     // Generic Execute Wrapper
@@ -1678,6 +2084,8 @@ def process():
     bottomPanelHeight,
     promptModal,
     editorInstance,
+    workflowErrors,
+    aiPendingRequest,
   };
 
   return (

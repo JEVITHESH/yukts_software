@@ -1,0 +1,1 @@
+Groq: Groq API Error: 429 — Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01khtd68m2f8ka7d1dt79gmj2c` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 98547, Requested 3130. Please try again in 24m8.928s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing

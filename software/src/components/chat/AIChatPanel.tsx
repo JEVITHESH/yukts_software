@@ -15,7 +15,10 @@ import {
   GitBranch,
   CheckCircle2,
   Copy,
-  Check
+  Check,
+  Settings,
+  AlertCircle,
+  Play
 } from "lucide-react";
 import { useApp } from "../../store";
 
@@ -101,9 +104,14 @@ const MessageContent = ({ content }: { content: string }) => {
 };
 
 // ─── Backend Analysis Panel ───────────────────────────────────────────────────
-const AnalysisPanel = ({ analysis }: { analysis: any }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const AnalysisPanel = ({ analysis, isActive }: { analysis: any; isActive?: boolean }) => {
+  const { state, commands } = useApp();
+  const [isOpen, setIsOpen] = useState(analysis?.errors?.length > 0 || analysis?.codeGenerated);
   const [showFullPrompt, setShowFullPrompt] = useState(false);
+
+  // Use current live errors if this is the active message, otherwise use historical errors
+  const displayErrors = isActive ? state.workflowErrors : (analysis.errors || []);
+  const canRun = analysis.codeGenerated && displayErrors.length === 0;
 
   return (
     <div className="mt-2 rounded-xl border border-white/10 overflow-hidden bg-black/30">
@@ -114,7 +122,7 @@ const AnalysisPanel = ({ analysis }: { analysis: any }) => {
       >
         <div className="flex items-center gap-2">
           <Zap size={10} />
-          <span>Antigravity Backend Analysis</span>
+          <span>Yukta Backend Analysis</span>
           {analysis.codeGenerated && (
             <span className="flex items-center gap-1 text-green-400 ml-2">
               <CheckCircle2 size={10} />
@@ -216,6 +224,47 @@ const AnalysisPanel = ({ analysis }: { analysis: any }) => {
                   <p className="text-[11px] text-purple-300/80">{analysis.customNodeNeeded}</p>
                 </div>
               )}
+
+              {/* Errors & Suggestions */}
+              {displayErrors.length > 0 && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2 text-red-400 font-bold text-[10px] uppercase tracking-widest">
+                    <AlertCircle size={12} />
+                    <span>Suggestions for Improvement</span>
+                  </div>
+                  <ul className="space-y-1">
+                    {displayErrors.map((err: string, idx: number) => (
+                      <li key={idx} className="text-[11px] text-red-300/80 flex gap-2">
+                        <span className="text-red-500">•</span>
+                        {err}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[10px] text-white/30 italic">
+                    {isActive ? "Fix these issues in the editor to enable execution." : "These issues were detected during generation."}
+                  </p>
+                </div>
+              )}
+
+              {/* Success / Run Action */}
+              {canRun && (
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-green-400 font-bold text-[10px] uppercase tracking-widest">
+                    <CheckCircle2 size={12} />
+                    <span>Workflow Ready</span>
+                  </div>
+                  <p className="text-[11px] text-green-300/80">
+                    {isActive ? "Current code looks good! You can now execute it." : "This code passed validation."}
+                  </p>
+                  <button 
+                    onClick={() => commands.runActiveWorkflowInTerminal()}
+                    className="w-full py-2 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-green-900/20"
+                  >
+                    <Play size={14} />
+                    Run Workflow
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -227,7 +276,7 @@ const AnalysisPanel = ({ analysis }: { analysis: any }) => {
 // ─── Main Chat Panel ───────────────────────────────────────────────────────────
 export const AIChatPanel: React.FC = () => {
   const { state, commands } = useApp();
-  const { isAIChatOpen, aiMessages, isAILoading, settings, aiChatPanelWidth } = state;
+  const { isAIChatOpen, aiMessages, isAILoading, settings, aiChatPanelWidth, aiPendingRequest } = state;
   const [input, setInput] = useState("");
   const [isResizing, setIsResizing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -285,24 +334,10 @@ export const AIChatPanel: React.FC = () => {
     setInput("");
   };
 
-  if (!isAIChatOpen) return null;
 
   return (
-    <motion.div
-      initial={{ x: 300, opacity: 0 }}
-      animate={{ width: aiChatPanelWidth, x: 0, opacity: 1 }}
-      exit={{ x: 300, opacity: 0 }}
-      transition={isResizing ? { duration: 0 } : { duration: 0.2 }}
-      className="border-l border-white/10 flex flex-col z-40 relative bg-[#141415]"
-      style={{ minWidth: 280 }}
-    >
-      {/* Resize Handle */}
-      <div
-        onMouseDown={startResizing}
-        className={`absolute left-0 top-0 bottom-0 w-1 cursor-col-resize transition-colors z-50 ${
-          isResizing ? "bg-blue-500" : "hover:bg-blue-500/30"
-        }`}
-      />
+    <div className="flex flex-col h-full bg-[#141415] relative overflow-hidden">
+
 
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-[#1a1a1b]">
@@ -311,11 +346,18 @@ export const AIChatPanel: React.FC = () => {
             <Bot size={16} className="text-white" />
           </div>
           <div>
-            <div className="text-[13px] font-black text-white tracking-tight">Antigravity</div>
+            <div className="text-[13px] font-black text-white tracking-tight">Yukta Assistant</div>
             <div className="text-[9px] text-green-400 font-bold uppercase tracking-widest">● Online · v2.0</div>
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <button 
+            onClick={commands.toggleSettings}
+            className="p-2 hover:bg-white/5 rounded-xl text-white/30 hover:text-white transition-all"
+            title="Settings"
+          >
+            <Settings size={15} />
+          </button>
           <button 
             onClick={commands.clearAIChat}
             className="p-2 hover:bg-white/5 rounded-xl text-white/30 hover:text-red-400 transition-all"
@@ -343,7 +385,7 @@ export const AIChatPanel: React.FC = () => {
               <Sparkles size={28} className="text-blue-400" />
             </div>
             <div>
-              <p className="text-sm font-black text-white/80">Antigravity is ready</p>
+              <p className="text-sm font-black text-white/80">Yukta Assistant is ready</p>
               <p className="text-[11px] text-white/30 mt-1">Ask me to build, explain, or generate code</p>
             </div>
           </div>
@@ -365,7 +407,7 @@ export const AIChatPanel: React.FC = () => {
             <div className={`max-w-[88%] flex flex-col gap-2`}>
               {/* Role label */}
               <div className={`text-[9px] font-black uppercase tracking-widest ${msg.role === "assistant" ? "text-blue-400" : "text-purple-400 text-right"}`}>
-                {msg.role === "assistant" ? "Antigravity" : "You"}
+                {msg.role === "assistant" ? "Yukta Assistant" : "You"}
               </div>
 
               {/* Message bubble */}
@@ -379,7 +421,10 @@ export const AIChatPanel: React.FC = () => {
 
               {/* Analysis Panel (only for assistant with analysis) */}
               {msg.role === "assistant" && msg.analysis && (
-                <AnalysisPanel analysis={msg.analysis} />
+                <AnalysisPanel 
+                  analysis={msg.analysis} 
+                  isActive={i === aiMessages.length - 1} 
+                />
               )}
             </div>
           </div>
@@ -422,6 +467,44 @@ export const AIChatPanel: React.FC = () => {
         ))}
       </div>
 
+      {/* Choice Action Required */}
+      <AnimatePresence>
+        {aiPendingRequest && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="mx-4 mb-4 p-4 rounded-2xl border border-blue-500/30 bg-blue-500/5 backdrop-blur-xl shadow-2xl shadow-blue-500/10"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-1.5 rounded-lg bg-blue-500/20">
+                <AlertCircle size={14} className="text-blue-400" />
+              </div>
+              <span className="text-[11px] font-black text-blue-400 uppercase tracking-[0.15em]">Workflow Decision Needed</span>
+            </div>
+            <p className="text-[11px] text-white/50 mb-4 leading-relaxed font-medium">
+              You have an active workflow. Building on top of it will merge new logic into your existing code. Clearing will start from a clean slate.
+            </p>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => commands.sendAIMessage(aiPendingRequest.prompt, 'clear')}
+                className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-red-500/10 text-white/40 hover:text-red-400 text-[10px] font-black uppercase tracking-wider border border-white/5 hover:border-red-500/20 transition-all group flex items-center justify-center gap-2"
+              >
+                <Trash2 size={12} className="group-hover:scale-110 transition-transform" />
+                Clear Workflow
+              </button>
+              <button 
+                onClick={() => commands.sendAIMessage(aiPendingRequest.prompt, 'reuse')}
+                className="flex-[1.5] py-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-[10px] font-black uppercase tracking-wider border border-blue-500/30 transition-all shadow-lg shadow-blue-500/10 flex items-center justify-center gap-2 group"
+              >
+                <GitBranch size={12} className="group-hover:rotate-12 transition-transform" />
+                Reuse & Append
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input */}
       <div className="p-4 border-t border-white/10">
         <div className="flex items-end gap-2 p-2 rounded-2xl border border-white/10 bg-[#1e1e20] focus-within:border-blue-500/50 transition-all">
@@ -434,7 +517,7 @@ export const AIChatPanel: React.FC = () => {
                 handleSend();
               }
             }}
-            placeholder="Ask Antigravity to build something..."
+            placeholder="Ask Yukta to build something..."
             rows={2}
             className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-white/20 text-white resize-none leading-relaxed"
           />
@@ -452,6 +535,6 @@ export const AIChatPanel: React.FC = () => {
         </div>
         <p className="text-[9px] text-white/20 text-center mt-2">Shift+Enter for new line · Enter to send</p>
       </div>
-    </motion.div>
+    </div>
   );
 };

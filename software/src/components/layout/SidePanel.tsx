@@ -31,80 +31,13 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp, PanelType } from "../../store";
+import { AIChatPanel } from "../chat/AIChatPanel";
 
 // --- Sub-Panels ---
 
 // Explorer and Search panels removed as per user request
 
-const AIPanel = () => {
-  const { state, commands } = useApp();
-  const { aiMessages, mode } = state;
-  const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [aiMessages]);
-
-  const handleSend = () => {
-    if (!input.trim()) return;
-    commands.execute("sendAIMessage", input);
-    setInput("");
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="p-3 text-[11px] uppercase tracking-wider font-bold text-white/50">AI Agent</div>
-      <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto space-y-4">
-        {aiMessages.length === 0 ? (
-          <div className="text-xs text-white/30 italic text-center mt-10">
-            Ask me anything about your {mode === "workflow" ? "workflow" : "code"}.
-          </div>
-        ) : (
-          aiMessages.map((msg, i) => (
-            <div 
-              key={i} 
-              className={`p-3 rounded-lg text-sm ${
-                msg.role === "assistant" 
-                  ? "bg-[#3c3c3c] text-white/90" 
-                  : "bg-blue-600/20 border border-blue-500/30 text-blue-100"
-              }`}
-            >
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-1 opacity-50">
-                {msg.role}
-              </div>
-              {msg.content}
-            </div>
-          ))
-        )}
-      </div>
-      <div className="p-4 border-t border-[#454545]">
-        <div className="relative">
-          <textarea 
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder={mode === "workflow" ? "Ask about workflow..." : "Ask about code..."} 
-            className="w-full bg-[#3c3c3c] border border-[#454545] rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 resize-none h-20"
-          />
-          <button 
-            onClick={handleSend}
-            className="absolute bottom-2 right-2 p-1.5 bg-blue-600 rounded-md text-white hover:bg-blue-500 transition-colors"
-          >
-            <Send size={14} />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+// AIPanel removed as per user request
 
 const WorkflowPanel = () => {
   const { state, commands } = useApp();
@@ -127,6 +60,7 @@ const WorkflowPanel = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto py-2">
+        <h3 className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-2 px-2">Yukta Workflow Files</h3>
         <div className="mt-1 space-y-0.5">
           {Object.entries(workflows as Record<string, any>).map(([id, wf]) => {
             const isExpanded = expandedFolders.includes(id) || activeWorkflowId === id;
@@ -134,14 +68,13 @@ const WorkflowPanel = () => {
             
             // Get files from nodes
             const nodeFiles = (wf.nodes || [])
-              .filter((n: any) => ['agent', 'tool'].includes(n.type) && n.data?.fileName)
+              .filter((n: any) => ['agent', 'tool', 'host', 'config'].includes(n.type) && n.data?.fileName)
               .map((n: any) => ({
                 name: n.data.fileName,
                 type: n.type,
                 nodeId: n.id
               }));
 
-            // Always ensure run.py (the orchestrator) is at the top
             const files = [
               { name: wf.fileName || "run.py", type: "orchestrator", nodeId: null },
               ...nodeFiles
@@ -150,14 +83,36 @@ const WorkflowPanel = () => {
             return (
               <div key={id} className="flex flex-col">
                 <div
-                  onClick={() => {
-                    commands.execute("setActiveWorkflowId", id);
-                    toggleFolder(id);
-                  }}
                   className={`flex items-center gap-2 py-1.5 px-3 cursor-pointer hover:bg-[#2a2d2e] group transition-colors ${isActive ? "bg-[#37373d] text-white" : "text-white/60"}`}
                 >
-                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <span className="text-xs truncate font-medium">{wf.folderName || wf.name}</span>
+                  <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => {
+                    commands.execute("setActiveWorkflowId", id);
+                    toggleFolder(id);
+                  }}>
+                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <span className="text-xs truncate font-medium">{wf.folderName || wf.name}</span>
+                  </div>
+                  <div className="hidden group-hover:flex items-center gap-1">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newName = prompt("Enter new folder name:", wf.folderName || wf.name);
+                        if (newName) commands.execute("renameFolder", { id, name: newName });
+                      }}
+                      className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete folder "${wf.folderName || wf.name}"?`)) commands.execute("deleteFolder", id);
+                      }}
+                      className="p-1 hover:bg-red-500/20 rounded text-white/40 hover:text-red-400"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
                 
                 {isExpanded && (
@@ -170,18 +125,33 @@ const WorkflowPanel = () => {
                       files.map((file: any, i: number) => (
                         <div 
                           key={i}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            commands.execute("openYuktaFile", `${wf.folderName}/${file.name}`, file.nodeId);
-                          }}
                           className={`flex items-center gap-2 py-1 px-3 hover:bg-[#2a2d2e] cursor-pointer transition-colors group/file ${file.type === 'orchestrator' ? "text-blue-400 font-semibold" : "text-white/40 hover:text-blue-400"}`}
                         >
-                          {file.type === 'orchestrator' ? (
-                            <Play size={12} className="text-blue-400" />
-                          ) : (
-                            <FileCode size={12} className="text-blue-500/50 group-hover/file:text-blue-400" />
+                          <div className="flex items-center gap-2 flex-1 min-w-0" onClick={(e) => {
+                            e.stopPropagation();
+                            commands.execute("openYuktaFile", `${wf.folderName}/${file.name}`, file.nodeId);
+                          }}>
+                            {file.type === 'orchestrator' ? (
+                              <Play size={12} className="text-blue-400" />
+                            ) : (
+                              <FileCode size={12} className="text-blue-500/50 group-hover/file:text-blue-400" />
+                            )}
+                            <span className="text-[11px] truncate">{file.name}</span>
+                          </div>
+                          
+                          {file.type !== 'orchestrator' && (
+                            <div className="hidden group-hover/file:flex items-center gap-1">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Delete file "${file.name}"?`)) commands.execute("deleteFile", { wfId: id, fileName: file.name, nodeId: file.nodeId });
+                                }}
+                                className="p-1 hover:bg-red-500/20 rounded text-white/20 hover:text-red-400"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
                           )}
-                          <span className="text-[11px] truncate">{file.name}</span>
                         </div>
                       ))
                     )}
@@ -253,8 +223,8 @@ export const SidePanel: React.FC = () => {
 
   const renderPanel = () => {
     switch (activePanel) {
-      case "ai": return <AIPanel />;
       case "workflow": return <WorkflowPanel />;
+      case "assistant": return <AIChatPanel />;
       default: return null;
     }
   };

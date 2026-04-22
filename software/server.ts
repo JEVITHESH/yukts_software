@@ -136,7 +136,7 @@ async function startServer() {
   app.get("/api/files/read", (req, res) => {
     const filePathParam = req.query.path as string;
     console.log(`[GET] /api/files/read - Path: ${filePathParam}`);
-    
+
     if (!filePathParam) return res.status(400).json({ error: "Path is required" });
 
     try {
@@ -145,7 +145,7 @@ async function startServer() {
       if (!relativePath.startsWith("assets" + path.sep) && !relativePath.startsWith("assets/")) {
         relativePath = path.join("assets", relativePath);
       }
-      
+
       const filePath = path.join(process.cwd(), relativePath);
       if (!fs.existsSync(filePath)) {
         console.error(`File NOT found: ${filePath}`);
@@ -153,25 +153,25 @@ async function startServer() {
       }
 
       const fileExt = path.extname(filePath).toLowerCase();
-      
+
       if (fileExt === '.xlsx' || fileExt === '.xls') {
         try {
           // Handle different import styles for XLSX
           const reader = (XLSX.readFile || (XLSX as any).default?.readFile);
           const sheetUtils = (XLSX.utils || (XLSX as any).default?.utils);
-          
+
           if (!reader) throw new Error("XLSX reader not found. Please check library installation.");
 
           const workbook = reader(filePath);
           const sheetNames = workbook.SheetNames;
           const firstSheet = workbook.Sheets[sheetNames[0]];
           const data = sheetUtils.sheet_to_json(firstSheet, { range: 0, header: 1 }).slice(0, 10);
-          
+
           console.log(`Parsed Excel file: ${sheetNames[0]} (${data.length} rows)`);
-          res.json({ 
-            content: JSON.stringify({ sheetNames, preview: data }), 
-            isBinary: false, 
-            isExcel: true 
+          res.json({
+            content: JSON.stringify({ sheetNames, preview: data }),
+            isBinary: false,
+            isExcel: true
           });
         } catch (excelErr: any) {
           console.error("Excel parse error:", excelErr);
@@ -204,9 +204,9 @@ async function startServer() {
       if (!relativePath.startsWith("assets" + path.sep) && !relativePath.startsWith("assets/")) {
         relativePath = path.join("assets", relativePath);
       }
-      
+
       const filePath = path.join(process.cwd(), relativePath);
-      
+
       // Ensure directory exists
       const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) {

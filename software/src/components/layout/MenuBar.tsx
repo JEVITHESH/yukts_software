@@ -45,6 +45,8 @@ export const MenuBar: React.FC = () => {
         { label: "Save Workflow", command: () => commands.execute("saveWorkflow"), shortcut: "Ctrl+S" },
         { label: "Run in Terminal", command: () => commands.runActiveWorkflowInTerminal(), shortcut: "Ctrl+F5" },
         { divider: true, label: "" },
+        { label: "Settings", command: () => commands.toggleSettings(), shortcut: "Ctrl+," },
+        { divider: true, label: "" },
         { label: "Import Project (.agw)", command: () => commands.importWorkflow(), shortcut: "Ctrl+O" },
         { label: "Export Project (.agw)", command: () => commands.exportWorkflow(), shortcut: "Ctrl+E" },
       ],
@@ -223,7 +225,7 @@ export const MenuBar: React.FC = () => {
         <button 
           onClick={() => commands.execute("toggleAIChat")}
           className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-            state.isAIChatOpen 
+            state.activePanel === "assistant" && state.isSidebarOpen
               ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" 
               : "text-white/40 hover:text-white hover:bg-white/5"
           }`}

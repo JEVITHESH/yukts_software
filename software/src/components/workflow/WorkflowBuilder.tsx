@@ -403,7 +403,7 @@ const WorkflowBuilderContent: React.FC = () => {
   );
 
   const onNodeClick = useCallback((_: any, node: any) => {
-    commands.execute("setSelectedNodeId", node.id);
+    commands.setSelectedNodeId(node.id);
     
     // Rule: Clicking a Yukta node should open its associated code file
     const isYukta = ['agent', 'tool', 'run', 'config', 'host'].includes(node.type);
@@ -411,7 +411,7 @@ const WorkflowBuilderContent: React.FC = () => {
       const wfId = state.activeWorkflowId;
       const wf = wfId ? state.workflows[wfId] : null;
       if (wf && wf.folderName) {
-        commands.execute("openYuktaFile", `${wf.folderName}/${node.data.fileName}`, node.id);
+        commands.openYuktaFile(`${wf.folderName}/${node.data.fileName}`, node.id);
       }
     }
   }, [commands, state.activeWorkflowId, state.workflows]);
@@ -481,10 +481,10 @@ const WorkflowBuilderContent: React.FC = () => {
       if (['agent', 'tool', 'run', 'config', 'host'].includes(type)) {
         // Ensure a folder (workflow) exists before creating a file
         if (!state.activeWorkflowId) {
-          commands.execute("createNewWorkflow", (id: string) => {
+          commands.createNewWorkflow((id: string, folderName?: string) => {
             if (id) {
                // Proceed with creating the file after folder creation
-               createFileForNode(type, newNode, id);
+               createFileForNode(type, newNode, id, folderName);
             }
           });
           return;
@@ -498,7 +498,7 @@ const WorkflowBuilderContent: React.FC = () => {
     [commands, screenToFlowPosition, state.activeWorkflowId]
   );
 
-  const createFileForNode = (type: string, newNode: any, workflowId: string) => {
+  const createFileForNode = (type: string, newNode: any, workflowId: string, folderName?: string) => {
     if (!newNode.data.fileName) {
         let fileName = "";
         if (type === 'run') fileName = "run.py";
@@ -515,7 +515,8 @@ const WorkflowBuilderContent: React.FC = () => {
     commands.setNodes((nds: any) => nds.concat(newNode));
     
     // Then create the physical file
-    commands.createYuktaFile(type as any, newNode.data.fileName, newNode.data, newNode.id);
+    const targetFolder = folderName || state.workflows[workflowId]?.folderName;
+    commands.createYuktaFile(type as any, newNode.data.fileName, newNode.data, newNode.id, targetFolder);
   };
 
   return (

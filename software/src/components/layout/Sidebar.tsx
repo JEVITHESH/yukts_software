@@ -3,7 +3,8 @@ import {
   Files, 
   Search, 
   Workflow,
-  Bot
+  Bot,
+  Sparkles
 } from "lucide-react";
 import { useApp, PanelType } from "../../store";
 
@@ -38,7 +39,7 @@ export const Sidebar: React.FC = () => {
 
   const items = [
     { icon: Workflow, label: "Workflow Builder", panel: "workflow" as PanelType },
-    { icon: Bot, label: "AI Agent", panel: "ai" as PanelType },
+    { icon: Sparkles, label: "Yukta Assistant", panel: "assistant" as PanelType },
   ];
 
   return (

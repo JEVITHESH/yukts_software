@@ -37,6 +37,7 @@ import { BottomPanel } from "./components/layout/BottomPanel";
 import { AIChatPanel } from "./components/chat/AIChatPanel";
 import { ConfirmationModal } from "./components/modals/ConfirmationModal";
 import { PromptModal } from "./components/modals/PromptModal";
+import { SettingsModal } from "./components/modals/SettingsModal";
 import { WorkflowBuilder } from "./components/workflow/WorkflowBuilder";
 import { WorkflowCodeEditor } from "./components/workflow/WorkflowCodeEditor";
 
@@ -165,15 +166,13 @@ const MainLayout = () => {
             )}
           </AnimatePresence>
         </main>
-        <AnimatePresence>
-          <AIChatPanel key="ai-chat-panel" />
-        </AnimatePresence>
       </div>
 
       <AnimatePresence>
         <BottomPanel key="bottom-panel" />
         <ConfirmationModal key="confirmation-modal" />
         <PromptModal key="prompt-modal" />
+        <SettingsModal key="settings-modal" />
       </AnimatePresence>
     </div>
   );

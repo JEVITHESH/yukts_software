@@ -16,9 +16,14 @@ export const PromptModal: React.FC = () => {
 
   if (!promptModal) return null;
 
-  const handleSubmit = () => {
-    promptModal.onConfirm(value);
-    commands.closePromptModal();
+  const handleSubmit = async () => {
+    try {
+      await promptModal.onConfirm(value);
+    } catch (err) {
+      console.error("Error in prompt confirmation:", err);
+    } finally {
+      commands.closePromptModal();
+    }
   };
 
   return (
