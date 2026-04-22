@@ -1,7 +1,7 @@
 import React from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from 'motion/react';
 import { X, AlertCircle, Info } from "lucide-react";
-import { useApp } from "../store";
+import { useApp } from "../../store";
 
 export const ConfirmationModal: React.FC = () => {
   const { state, commands } = useApp();

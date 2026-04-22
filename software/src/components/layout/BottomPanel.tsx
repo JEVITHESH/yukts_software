@@ -20,10 +20,10 @@ import {
   Lock,
   Unlock
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { useApp } from "../store";
+import { motion, AnimatePresence } from 'motion/react';
+import { useApp } from "../../store";
 
-import { Terminal } from "./Terminal";
+import { Terminal } from "../terminal/Terminal";
 
 const TerminalTab = () => {
   const { state, commands } = useApp();

@@ -27,18 +27,18 @@ import {
   Loader2,
   Zap
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from 'motion/react';
 import Editor from "@monaco-editor/react";
 import { AppProvider, useApp, AppMode } from "./store";
-import { MenuBar } from "./components/MenuBar";
-import { Sidebar } from "./components/Sidebar";
-import { SidePanel } from "./components/SidePanel";
-import { BottomPanel } from "./components/BottomPanel";
-import { AIChatPanel } from "./components/AIChatPanel";
-import { ConfirmationModal } from "./components/ConfirmationModal";
-import { PromptModal } from "./components/PromptModal";
-import { WorkflowBuilder } from "./components/WorkflowBuilder";
-import { WorkflowCodeEditor } from "./components/WorkflowCodeEditor";
+import { MenuBar } from "./components/layout/MenuBar";
+import { Sidebar } from "./components/layout/Sidebar";
+import { SidePanel } from "./components/layout/SidePanel";
+import { BottomPanel } from "./components/layout/BottomPanel";
+import { AIChatPanel } from "./components/chat/AIChatPanel";
+import { ConfirmationModal } from "./components/modals/ConfirmationModal";
+import { PromptModal } from "./components/modals/PromptModal";
+import { WorkflowBuilder } from "./components/workflow/WorkflowBuilder";
+import { WorkflowCodeEditor } from "./components/workflow/WorkflowCodeEditor";
 
 // --- Workflow Page Component ---
 const WorkflowPage = () => {

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { useApp } from '../store';
+import { useApp } from "../../store";
 import { 
   Code, 
   AlertCircle, 
@@ -16,48 +16,34 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { generateAgentCode } from './WorkflowBuilder';
 
 export const WorkflowCodeEditor: React.FC = () => {
   const { state, commands } = useApp();
-  const { activeFile, workflowCode, isRunning, activeWorkflowId, workflows } = state;
+  const { workflowCode, isRunning, activeWorkflowId, workflows, activeFilePath } = state;
   const [codeError, setCodeError] = useState<string | null>(null);
+  const isSyncingRef = useRef(false);
 
   const activeWorkflow = activeWorkflowId ? workflows[activeWorkflowId] : null;
   const activeWorkflowName = activeWorkflow?.name || "Untitled Workflow";
-  const displayFileName = activeFile || "workflow.py";
-
-  const [actualCode, setActualCode] = useState<string>("");
-
-  useEffect(() => {
-    if (!activeFile) return;
-
-    fetch(`/api/files/read?path=${activeFile}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.content && !data.error) {
-          setActualCode(data.content);
-        } else {
-          setActualCode("");
-        }
-      })
-      .catch(() => setActualCode(""));
-  }, [activeFile]);
 
   const handleCodeChange = (value: string | undefined) => {
-    if (value === undefined) return;
-    setActualCode(value);
+    if (value === undefined || isSyncingRef.current) return;
     
-    // Only update workflow architecture state if we are actually editing the main entry workflow graph file
-    if (activeFile === "workflow.py") {
-      commands.setWorkflowCode(value);
+    // Always update the code state
+    commands.setWorkflowCode(value);
+    
+    // Only sync back to visual graph if we are editing the main workflow file (run.py)
+    const isMainWorkflowFile = activeWorkflow && activeFilePath === activeWorkflow.fileName;
+    
+    if (isMainWorkflowFile) {
+      isSyncingRef.current = true;
       const success = commands.syncCodeToWorkflow(value);
       if (success) {
         setCodeError(null);
       }
+      setTimeout(() => { isSyncingRef.current = false; }, 100);
     }
   };
-
 
   const handleManualSync = () => {
     const success = commands.syncCodeToWorkflow(workflowCode);
@@ -74,8 +60,13 @@ export const WorkflowCodeEditor: React.FC = () => {
       {/* Premium Header */}
       <div className="h-14 bg-[#141415]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 shadow-[0_4px_30px_rgba(0,0,0,0.3)] z-50">
         <div className="flex items-center gap-6">
-
-          
+          <button 
+            onClick={() => commands.switchToWorkflow()}
+            className="p-2 hover:bg-white/5 rounded-xl text-white/50 hover:text-white transition-all group"
+            title="Back to Graph"
+          >
+            <ChevronLeft size={20} className="group-hover:-translate-x-0.5 transition-transform" />
+          </button>
           <div className="flex items-center gap-3 py-1 px-3 bg-white/5 rounded-2xl border border-white/5">
             <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400 border border-blue-500/20">
               <FileCode size={20} />
@@ -83,7 +74,7 @@ export const WorkflowCodeEditor: React.FC = () => {
             <div className="flex flex-col">
               <span className="text-xs font-black text-white uppercase tracking-tighter">{activeWorkflowName}</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-white/30 font-mono">{displayFileName}</span>
+                <span className="text-[10px] text-white/30 font-mono">{activeFilePath || "workflow.py"}</span>
                 <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
               </div>
             </div>
@@ -161,13 +152,14 @@ export const WorkflowCodeEditor: React.FC = () => {
           <div className="flex-1 px-4 py-2">
             <div className="h-full rounded-2xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
               <Editor
+                key={activeFilePath || 'no-file'}
                 height="100%"
                 defaultLanguage="python"
+                path={activeFilePath || 'run.py'}
                 theme="vs-dark"
-                value={actualCode}
+                value={workflowCode}
                 onChange={handleCodeChange}
                 options={{
-                  readOnly: activeFile !== 'workflow.py',
                   minimap: { enabled: true, scale: 0.8, side: 'right' },
                   fontSize: 15,
                   scrollBeyondLastLine: true,

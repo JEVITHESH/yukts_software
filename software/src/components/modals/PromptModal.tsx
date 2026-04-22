@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from 'motion/react';
 import { X, HelpCircle, Send } from "lucide-react";
-import { useApp } from "../store";
+import { useApp } from "../../store";
 
 export const PromptModal: React.FC = () => {
   const { state, commands } = useApp();

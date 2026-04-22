@@ -17,6 +17,17 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
+      port: 3000,
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:3001',
+          changeOrigin: true
+        },
+        '/socket.io': {
+          target: 'ws://127.0.0.1:3001',
+          ws: true
+        }
+      },
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: {
         ignored: ['**/*.py'],

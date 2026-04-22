@@ -17,7 +17,7 @@ import {
   Copy,
   Check
 } from "lucide-react";
-import { useApp } from "../store";
+import { useApp } from "../../store";
 
 // ─── Code Block Renderer ──────────────────────────────────────────────────────
 const CodeBlock = ({ code, lang = "python" }: { code: string; lang?: string }) => {

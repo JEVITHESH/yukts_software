@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bot } from "lucide-react";
-import { useApp } from "../store";
+import { useApp } from "../../store";
 
 interface MenuItem {
   label: string;
@@ -41,7 +41,7 @@ export const MenuBar: React.FC = () => {
     {
       label: "File",
       items: [
-        { label: "New Workflow", command: () => commands.execute("createNewWorkflow"), shortcut: "Ctrl+N" },
+        { label: "Create New Folder", command: () => commands.execute("createNewWorkflow"), shortcut: "Ctrl+N" },
         { label: "Save Workflow", command: () => commands.execute("saveWorkflow"), shortcut: "Ctrl+S" },
         { label: "Run in Terminal", command: () => commands.runActiveWorkflowInTerminal(), shortcut: "Ctrl+F5" },
         { divider: true, label: "" },

@@ -12,7 +12,7 @@ import {
   ArrowUpRight,
   LogOut
 } from "lucide-react";
-import { useApp } from "../store";
+import { useApp } from "../../store";
 
 export const ProfileModal: React.FC = () => {
   const { state, commands } = useApp();

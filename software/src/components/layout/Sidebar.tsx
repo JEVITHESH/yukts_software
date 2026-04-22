@@ -5,7 +5,7 @@ import {
   Workflow,
   Bot
 } from "lucide-react";
-import { useApp, PanelType } from "../store";
+import { useApp, PanelType } from "../../store";
 
 interface SidebarIconProps {
   icon: React.ElementType;
@@ -37,8 +37,6 @@ export const Sidebar: React.FC = () => {
   const { activePanel, isSidebarOpen } = state;
 
   const items = [
-    { icon: Files, label: "Explorer", panel: "explorer" as PanelType },
-    { icon: Search, label: "Search", panel: "search" as PanelType },
     { icon: Workflow, label: "Workflow Builder", panel: "workflow" as PanelType },
     { icon: Bot, label: "AI Agent", panel: "ai" as PanelType },
   ];

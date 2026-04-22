@@ -3,7 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import * as socketIo from "socket.io-client";
 import "@xterm/xterm/css/xterm.css";
-import { useApp } from "../store";
+import { useApp } from "../../store";
 
 // @ts-ignore - handle potential import issues in this environment
 const io = (socketIo as any).io || (socketIo as any).default || socketIo;
